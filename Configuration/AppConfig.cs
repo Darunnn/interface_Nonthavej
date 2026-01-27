@@ -15,7 +15,7 @@ namespace interface_Nonthavej.Configuration
         public string ConnectionString { get; private set; }
 
         // API Settings
-        public static string ApiEndpoint { get; private set; }
+        public string ApiEndpoint { get; private set; } // ✅ Fixed: Changed from static to instance property
         public int ApiTimeoutSeconds { get; private set; } = 30;
         public int ApiRetryAttempts { get; private set; } = 3;
         public int ApiRetryDelaySeconds { get; private set; } = 5;
@@ -23,7 +23,7 @@ namespace interface_Nonthavej.Configuration
         // Processing Settings
         public int ProcessingIntervalSeconds { get; private set; } = 5;
         public int MaxProcessingBatchSize { get; private set; } = 20;
-        public bool AutoStart { get; private set; } = true;
+        public bool AutoStart { get; private set; } = false; // ✅ Changed default to false for safety
 
         public bool LoadConfiguration()
         {
@@ -31,6 +31,7 @@ namespace interface_Nonthavej.Configuration
             {
                 LoadConnectionString();
                 LoadAppSettings();
+                ValidateConfiguration();
                 return true;
             }
             catch (Exception ex)
@@ -53,25 +54,25 @@ namespace interface_Nonthavej.Configuration
                 throw new FileNotFoundException($"Connection file not found: {path}");
             }
 
-            // Read and parse the connection file
             var lines = File.ReadAllLines(path);
             var connBuilder = new System.Text.StringBuilder();
 
             foreach (var line in lines)
             {
-                if (!string.IsNullOrWhiteSpace(line))
-                {
-                    connBuilder.Append(line.Trim());
-                    if (!line.Trim().EndsWith(";"))
-                        connBuilder.Append(";");
-                }
+                // ✅ Skip comments and empty lines
+                if (string.IsNullOrWhiteSpace(line) || line.Trim().StartsWith("#"))
+                    continue;
+
+                connBuilder.Append(line.Trim());
+                if (!line.Trim().EndsWith(";"))
+                    connBuilder.Append(";");
             }
 
             ConnectionString = connBuilder.ToString();
 
             if (string.IsNullOrWhiteSpace(ConnectionString))
             {
-                throw new Exception("Connection string is empty");
+                throw new Exception("Connection string is empty after parsing");
             }
         }
 
@@ -79,7 +80,6 @@ namespace interface_Nonthavej.Configuration
         {
             var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolder, ConfigFile);
 
-            // Create default config if not exists
             if (!File.Exists(path))
             {
                 CreateDefaultConfig(path);
@@ -89,10 +89,12 @@ namespace interface_Nonthavej.Configuration
 
             foreach (var line in lines)
             {
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+                    continue;
 
                 var parts = line.Split('=');
-                if (parts.Length != 2) continue;
+                if (parts.Length != 2)
+                    continue;
 
                 var key = parts[0].Trim();
                 var value = parts[1].Trim();
@@ -103,23 +105,23 @@ namespace interface_Nonthavej.Configuration
                         ApiEndpoint = value;
                         break;
                     case "APITIMEOUTSECONDS":
-                        if (int.TryParse(value, out int timeout))
+                        if (int.TryParse(value, out int timeout) && timeout > 0)
                             ApiTimeoutSeconds = timeout;
                         break;
                     case "APIRETRYATTEMPTS":
-                        if (int.TryParse(value, out int retry))
+                        if (int.TryParse(value, out int retry) && retry > 0)
                             ApiRetryAttempts = retry;
                         break;
                     case "APIRETRYDELAYSECONDS":
-                        if (int.TryParse(value, out int delay))
+                        if (int.TryParse(value, out int delay) && delay > 0)
                             ApiRetryDelaySeconds = delay;
                         break;
                     case "PROCESSINGINTERVALSECONDS":
-                        if (int.TryParse(value, out int interval))
+                        if (int.TryParse(value, out int interval) && interval > 0)
                             ProcessingIntervalSeconds = interval;
                         break;
                     case "MAXPROCESSINGBATCHSIZE":
-                        if (int.TryParse(value, out int batchSize))
+                        if (int.TryParse(value, out int batchSize) && batchSize > 0)
                             MaxProcessingBatchSize = batchSize;
                         break;
                     case "AUTOSTART":
@@ -128,12 +130,28 @@ namespace interface_Nonthavej.Configuration
                         break;
                 }
             }
+        }
 
-            // Validate required settings
+        // ✅ Added validation method
+        private void ValidateConfiguration()
+        {
+            if (string.IsNullOrWhiteSpace(ConnectionString))
+                throw new Exception("ConnectionString is not configured");
+
             if (string.IsNullOrWhiteSpace(ApiEndpoint))
-            {
                 throw new Exception("ApiEndpoint is not configured in appsettings.ini");
-            }
+
+            if (ApiTimeoutSeconds <= 0)
+                throw new Exception("ApiTimeoutSeconds must be greater than 0");
+
+            if (ApiRetryAttempts < 0)
+                throw new Exception("ApiRetryAttempts must be 0 or greater");
+
+            if (ProcessingIntervalSeconds <= 0)
+                throw new Exception("ProcessingIntervalSeconds must be greater than 0");
+
+            if (MaxProcessingBatchSize <= 0)
+                throw new Exception("MaxProcessingBatchSize must be greater than 0");
         }
 
         private void CreateDefaultConfig(string path)
@@ -147,22 +165,33 @@ namespace interface_Nonthavej.Configuration
             var defaultConfig = @"# ===== API SETTINGS =====
 # URL endpoint สำหรับส่งข้อมูลไป Drug Dispenser API
 # Format: http://{HOST}/api/conHIS/insertPrescription
-ApiEndpoint=https://localhost:8080/api/conHIS/insertPrescription
-#ApiEndpoint=https://api-conhissystem.thanespgm.com/api/conHIS/insertPrescription
-#ApiEndpoint=http://192.168.0.47:3001/api/conHIS/insertPrescription
+ApiEndpoint=http://localhost:3001/api/conHIS/insertPrescription
+# ApiEndpoint=https://api-conhissystem.thanespgm.com/api/conHIS/insertPrescription
+# ApiEndpoint=http://192.168.0.47:3001/api/conHIS/insertPrescription
+
+# API timeout in seconds (default: 30)
 ApiTimeoutSeconds=30
+
+# Number of retry attempts (default: 3)
 ApiRetryAttempts=3
+
+# Delay between retries in seconds (default: 5)
 ApiRetryDelaySeconds=5
+
 # ===== PROCESSING SETTINGS =====
+# Processing interval in seconds (default: 5)
 ProcessingIntervalSeconds=5
+
+# Max records to process per batch (default: 20)
 MaxProcessingBatchSize=20
-AutoStart=true
+
+# Auto start service when app launches (default: false)
+AutoStart=false
 ";
 
             File.WriteAllText(path, defaultConfig);
         }
 
-        // Helper method to get configuration summary
         public string GetConfigurationSummary()
         {
             return $@"Configuration Summary:
@@ -191,8 +220,9 @@ Processing Settings:
                 var parts = ConnectionString.Split(';');
                 foreach (var part in parts)
                 {
-                    if (part.Trim().StartsWith("Server=", StringComparison.OrdinalIgnoreCase))
-                        return part.Split('=')[1].Trim();
+                    var trimmed = part.Trim();
+                    if (trimmed.StartsWith("Server=", StringComparison.OrdinalIgnoreCase))
+                        return trimmed.Substring(7);
                 }
             }
             catch { }
@@ -206,8 +236,9 @@ Processing Settings:
                 var parts = ConnectionString.Split(';');
                 foreach (var part in parts)
                 {
-                    if (part.Trim().StartsWith("Database=", StringComparison.OrdinalIgnoreCase))
-                        return part.Split('=')[1].Trim();
+                    var trimmed = part.Trim();
+                    if (trimmed.StartsWith("Database=", StringComparison.OrdinalIgnoreCase))
+                        return trimmed.Substring(9);
                 }
             }
             catch { }

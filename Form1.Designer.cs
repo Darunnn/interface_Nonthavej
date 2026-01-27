@@ -25,6 +25,7 @@ namespace interface_Nonthavej
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             statusLabel = new Label();
             lastCheckLabel = new Label();
             lastFoundLabel = new Label();
@@ -115,7 +116,6 @@ namespace interface_Nonthavej
             connectionStatusLabel.Size = new Size(139, 13);
             connectionStatusLabel.TabIndex = 4;
             connectionStatusLabel.Text = "Database: Connecting...";
-            
             // 
             // startStopButton
             // 
@@ -130,6 +130,7 @@ namespace interface_Nonthavej
             startStopButton.TabIndex = 0;
             startStopButton.Text = "▶ Start";
             startStopButton.UseVisualStyleBackColor = false;
+            startStopButton.Click += StartStopButton_Click;
             // 
             // settingsButton
             // 
@@ -140,6 +141,7 @@ namespace interface_Nonthavej
             settingsButton.TabIndex = 3;
             settingsButton.Text = "⚙️ Settings";
             settingsButton.UseVisualStyleBackColor = true;
+            settingsButton.Click += SettingsButton_Click;
             // 
             // exportButton
             // 
@@ -153,6 +155,7 @@ namespace interface_Nonthavej
             exportButton.TabIndex = 6;
             exportButton.Text = "📥 Export";
             exportButton.UseVisualStyleBackColor = false;
+            exportButton.Click += ExportButton_Click;
             // 
             // dateLabel
             // 
@@ -203,6 +206,7 @@ namespace interface_Nonthavej
             searchButton.TabIndex = 4;
             searchButton.Text = "🔍 Search";
             searchButton.UseVisualStyleBackColor = false;
+            searchButton.Click += SearchButton_Click;
             // 
             // refreshButton
             // 
@@ -213,6 +217,7 @@ namespace interface_Nonthavej
             refreshButton.TabIndex = 5;
             refreshButton.Text = "🔄 Refresh";
             refreshButton.UseVisualStyleBackColor = true;
+            refreshButton.Click += RefreshButton_Click;
             // 
             // totalPanel
             // 
@@ -226,6 +231,7 @@ namespace interface_Nonthavej
             totalPanel.Name = "totalPanel";
             totalPanel.Size = new Size(210, 69);
             totalPanel.TabIndex = 0;
+            totalPanel.Click += TotalPanel_Click;
             // 
             // totalLabel
             // 
@@ -262,6 +268,7 @@ namespace interface_Nonthavej
             successPanel.Name = "successPanel";
             successPanel.Size = new Size(210, 69);
             successPanel.TabIndex = 1;
+            successPanel.Click += SuccessPanel_Click;
             // 
             // successLabel
             // 
@@ -298,6 +305,7 @@ namespace interface_Nonthavej
             failedPanel.Name = "failedPanel";
             failedPanel.Size = new Size(210, 69);
             failedPanel.TabIndex = 2;
+            failedPanel.Click += FailedPanel_Click;
             // 
             // failedLabel
             // 
@@ -417,12 +425,13 @@ namespace interface_Nonthavej
             Controls.Add(groupBox3);
             Controls.Add(groupBox2);
             Controls.Add(groupBox1);
+            Icon = (Icon)resources.GetObject("$this.Icon");
             Margin = new Padding(4, 3, 4, 3);
             MaximumSize = new Size(865, 744);
             MinimumSize = new Size(865, 744);
             Name = "Form1";
             StartPosition = FormStartPosition.Manual;
-            Text = "interface_Nonthavej";
+            Text = "interface Nonthavej - Drug Dispense Monitor";
             totalPanel.ResumeLayout(false);
             successPanel.ResumeLayout(false);
             failedPanel.ResumeLayout(false);
@@ -480,5 +489,6 @@ namespace interface_Nonthavej
 
         // Data Zone
         private System.Windows.Forms.DataGridView dataGridView;
+
     }
 }
