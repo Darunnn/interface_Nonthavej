@@ -1,31 +1,40 @@
-﻿using Microsoft.Data.SqlClient;
+﻿using interface_Nonthavej.FunctionFrom.Settings;
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Configuration;
-using System.Data;
 using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.IO;
 using System.Windows.Forms;
 
 namespace interface_Nonthavej
 {
     public partial class SettingsForm : System.Windows.Forms.Form
     {
-        private const string ConnFolder = "Connection";
-        private const string ConnFile = "connectdatabase.ini";
-        private const string ConfigFolder = "Config";
-        private const string ConfigFile = "appsettings.ini";
+        // Managers
+        private readonly FnDatabaseSettings _dbManager;
+        private readonly FnAPISettings _apiManager;
+        private readonly FnLogSettings _logManager;
+        private readonly SettingsValidator _validator;
+
+        // Current Settings
+        private DatabaseSettings _dbSettings;
+        private APISettings _apiSettings;
+        private LogSettings _logSettings;
 
         public bool SettingsChanged { get; private set; }
 
         public SettingsForm()
         {
             InitializeComponent();
+
+            // Initialize managers
+            _dbManager = new FnDatabaseSettings();
+            _apiManager = new FnAPISettings();
+            _logManager = new FnLogSettings();
+            _validator = new SettingsValidator();
+
             LoadCurrentSettings();
         }
+
+        #region Load Settings
 
         private void LoadCurrentSettings()
         {
@@ -48,143 +57,100 @@ namespace interface_Nonthavej
 
         private void LoadDatabaseSettings()
         {
-            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConnFolder, ConnFile);
+            _dbSettings = _dbManager.Load();
 
-
-
-            if (File.Exists(path))
-            {
-                var lines = File.ReadAllLines(path);
-                foreach (var line in lines)
-                {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-
-                    if (line.StartsWith("Server="))
-                        txtServer.Text = line.Replace("Server=", "").Trim().TrimEnd(';');
-                    else if (line.StartsWith("Database="))
-                        txtDatabase.Text = line.Replace("Database=", "").Trim().TrimEnd(';');
-                    else if (line.StartsWith("User Id="))
-                        txtUserId.Text = line.Replace("User Id=", "").Trim().TrimEnd(';');
-                    else if (line.StartsWith("Password="))
-                        txtPassword.Text = line.Replace("Password=", "").Trim().TrimEnd(';');
-
-                }
-            }
+            txtServer.Text = _dbSettings.Server;
+            txtDatabase.Text = _dbSettings.Database;
+            txtUserId.Text = _dbSettings.UserId;
+            txtPassword.Text = _dbSettings.Password;
         }
 
         private void LoadAPISettings()
         {
-            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolder, ConfigFile);
+            _apiSettings = _apiManager.Load();
 
-            if (File.Exists(path))
-            {
-                var lines = File.ReadAllLines(path);
-                foreach (var line in lines)
-                {
-                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
-
-                    var parts = line.Split('=');
-                    if (parts.Length != 2) continue;
-
-                    var key = parts[0].Trim();
-                    var value = parts[1].Trim();
-
-                    switch (key.ToUpper())
-                    {
-                        case "APIENDPOINT":
-                            txtApiEndpoint.Text = value;
-                            break;
-                        case "APITIMEOUTSECONDS":
-                            if (int.TryParse(value, out int timeout))
-                                numApiTimeout.Value = timeout;
-                            break;
-                        case "APIRETRYATTEMPTS":
-                            if (int.TryParse(value, out int retry))
-                                numApiRetry.Value = retry;
-                            break;
-                        case "APIRETRYDELAYSECONDS":
-                            if (int.TryParse(value, out int delay))
-                                numApiRetryDelay.Value = delay;
-                            break;
-                    }
-                }
-            }
+            txtApiEndpoint.Text = _apiSettings.ApiEndpoint;
+            numApiTimeout.Value = _apiSettings.ApiTimeoutSeconds;
+            numApiRetry.Value = _apiSettings.ApiRetryAttempts;
+            numApiRetryDelay.Value = _apiSettings.ApiRetryDelaySeconds;
         }
 
         private void LoadLogSettings()
         {
-            var logDays = ConfigurationManager.AppSettings["LogRetentionDays"];
-            if (!string.IsNullOrEmpty(logDays) && int.TryParse(logDays, out int days))
-            {
-                numLogRetention.Value = days;
-            }
+            _logSettings = _logManager.Load();
+            numLogRetention.Value = _logSettings.LogRetentionDays;
         }
 
-        // ⭐ Test Database Connection
+        #endregion
+
+        #region Button Click Events
+
         private async void BtnTestConnection_Click(object sender, EventArgs e)
         {
-            if (!ValidateDatabaseInputs())
-                return;
+            // Update settings from form
+            UpdateDatabaseSettingsFromForm();
 
+            // Validate
+            var validation = _validator.ValidateDatabase(_dbSettings);
+            if (!validation.IsValid)
+            {
+                MessageBox.Show(validation.ErrorMessage, "Validation Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabControl.SelectedTab = tabDatabase;
+                FocusDatabaseField(validation.FieldName);
+                return;
+            }
+
+            // Test connection
             btnTestConnection.Enabled = false;
             lblConnectionStatus.Text = "⏳ Testing connection...";
             lblConnectionStatus.ForeColor = Color.Orange;
 
             try
             {
-                // Get charset based on selected encoding
+                var result = await _dbManager.TestConnectionAsync(_dbSettings);
 
-
-                var connectionString = $"Server={txtServer.Text.Trim()};" +
-                                     $"Database={txtDatabase.Text.Trim()};" +
-                                     $"User Id={txtUserId.Text.Trim()};" +
-                                     $"Password={txtPassword.Text.Trim()};";
-
-
-                await Task.Run(() =>
+                if (result.IsSuccess)
                 {
-                    using (var connection = new SqlConnection(connectionString))
-                    {
-                        connection.Open();
+                    lblConnectionStatus.Text = $"✅ Connected successfully!\nSQL Server Version: {result.Version}";
+                    lblConnectionStatus.ForeColor = Color.Green;
 
-                        // Test query
-                        using (var cmd = new SqlCommand("SELECT VERSION()", connection))
-                        {
-                            var version = cmd.ExecuteScalar()?.ToString() ?? "Unknown";
+                    MessageBox.Show(
+                        $"✅ การเชื่อมต่อสำเร็จ!\n\n" +
+                        $"Server: {_dbSettings.Server}\n" +
+                        $"Database: {_dbSettings.Database}\n" +
+                        $"SQL Server Version: {result.Version}",
+                        "Connection Successful",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                }
+                else
+                {
+                    lblConnectionStatus.Text = $"❌ Connection failed: {result.Message}";
+                    lblConnectionStatus.ForeColor = Color.Red;
 
-                            this.Invoke(new Action(() =>
-                            {
-                                lblConnectionStatus.Text = $"✅ Connected successfully!\nMySQL Version: {version}";
-                                lblConnectionStatus.ForeColor = Color.Green;
-
-                                MessageBox.Show(
-                                    $"✅ การเชื่อมต่อสำเร็จ!\n\n" +
-                                    $"Server: {txtServer.Text}\n" +
-                                    $"Database: {txtDatabase.Text}\n" +
-                                    $"MySQL Version: {version}",
-                                    "Connection Successful",
-                                    MessageBoxButtons.OK,
-                                    MessageBoxIcon.Information
-                                );
-                            }));
-                        }
-                    }
-                });
+                    MessageBox.Show(
+                        $"❌ การเชื่อมต่อล้มเหลว!\n\n{result.Message}\n\n" +
+                        $"กรุณาตรวจสอบ:\n" +
+                        $"• Server address และ port\n" +
+                        $"• Database name\n" +
+                        $"• Username และ Password\n" +
+                        $"• Network connectivity",
+                        "Connection Failed",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                }
             }
             catch (Exception ex)
             {
-                lblConnectionStatus.Text = $"❌ Connection failed: {ex.Message}";
+                lblConnectionStatus.Text = $"❌ Error: {ex.Message}";
                 lblConnectionStatus.ForeColor = Color.Red;
 
                 MessageBox.Show(
-                    $"❌ การเชื่อมต่อล้มเหลว!\n\n{ex.Message}\n\n" +
-                    $"กรุณาตรวจสอบ:\n" +
-                    $"• Server address และ port\n" +
-                    $"• Database name\n" +
-                    $"• Username และ Password\n" +
-                    $"• Encoding setting\n" +
-                    $"• Network connectivity",
-                    "Connection Failed",
+                    $"❌ เกิดข้อผิดพลาด!\n\n{ex.Message}",
+                    "Error",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );
@@ -195,15 +161,18 @@ namespace interface_Nonthavej
             }
         }
 
-
-
         private void BtnSave_Click(object sender, EventArgs e)
         {
             try
             {
-                if (!ValidateInputs())
+                // Update all settings from form
+                UpdateAllSettingsFromForm();
+
+                // Validate all settings
+                if (!ValidateAllSettings())
                     return;
 
+                // Confirm save
                 var result = MessageBox.Show(
                     "คุณต้องการบันทึกการตั้งค่าทั้งหมดหรือไม่?\n\n" +
                     "📁 ไฟล์ที่จะถูกแก้ไข:\n" +
@@ -219,17 +188,16 @@ namespace interface_Nonthavej
                 if (result != DialogResult.Yes)
                     return;
 
-                SaveDatabaseSettings();
-                SaveAPISettings();
-                SaveLogSettings();
+                // Save all settings
+                SaveAllSettings();
 
                 SettingsChanged = true;
 
                 MessageBox.Show(
                     "✅ บันทึกการตั้งค่าทั้งหมดสำเร็จ!\n\n" +
                     "ไฟล์ที่ถูกอัพเดท:\n" +
-                    $"✓ {Path.Combine(ConnFolder, ConnFile)}\n" +
-                    $"✓ {Path.Combine(ConfigFolder, ConfigFile)}\n" +
+                    "✓ Connection\\connectdatabase.ini\n" +
+                    "✓ Config\\appsettings.ini\n" +
                     "✓ App.config\n\n" +
                     "💡 การตั้งค่าจะมีผลในครั้งถัดไปที่โปรแกรมโหลดข้อมูล",
                     "Success",
@@ -251,134 +219,6 @@ namespace interface_Nonthavej
             }
         }
 
-        private bool ValidateDatabaseInputs()
-        {
-            if (string.IsNullOrWhiteSpace(txtServer.Text))
-            {
-                MessageBox.Show("กรุณาระบุ Server", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                tabControl.SelectedTab = tabDatabase;
-                txtServer.Focus();
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(txtDatabase.Text))
-            {
-                MessageBox.Show("กรุณาระบุ Database", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                tabControl.SelectedTab = tabDatabase;
-                txtDatabase.Focus();
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(txtUserId.Text))
-            {
-                MessageBox.Show("กรุณาระบุ User ID", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                tabControl.SelectedTab = tabDatabase;
-                txtUserId.Focus();
-                return false;
-            }
-
-
-
-            return true;
-        }
-
-        private bool ValidateInputs()
-        {
-            // Validate Database Settings
-            if (!ValidateDatabaseInputs())
-                return false;
-
-            // Validate API Settings
-            if (string.IsNullOrWhiteSpace(txtApiEndpoint.Text))
-            {
-                MessageBox.Show("กรุณาระบุ API Endpoint", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                tabControl.SelectedTab = tabAPI;
-                txtApiEndpoint.Focus();
-                return false;
-            }
-
-            if (!Uri.TryCreate(txtApiEndpoint.Text, UriKind.Absolute, out _))
-            {
-                MessageBox.Show("API Endpoint ไม่ถูกต้อง\nกรุณาระบุ URL ที่ถูกต้อง (เช่น https://example.com/api)",
-                    "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                tabControl.SelectedTab = tabAPI;
-                txtApiEndpoint.Focus();
-                return false;
-            }
-
-            return true;
-        }
-
-        private void SaveDatabaseSettings()
-        {
-            var directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConnFolder);
-            if (!Directory.Exists(directory))
-                Directory.CreateDirectory(directory);
-
-            var path = Path.Combine(directory, ConnFile);
-
-            // Determine charset based on selected encoding
-
-
-            var content = new StringBuilder();
-            content.AppendLine($"Server={txtServer.Text.Trim()};");
-            content.AppendLine($"Database={txtDatabase.Text.Trim()};");
-            content.AppendLine($"User Id={txtUserId.Text.Trim()};");
-            content.AppendLine($"Password={txtPassword.Text.Trim()};");
-            content.AppendLine($"TrustServerCertificate=True;");
-
-            File.WriteAllText(path, content.ToString());
-        }
-
-        private void SaveAPISettings()
-        {
-            var directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolder);
-            if (!Directory.Exists(directory))
-                Directory.CreateDirectory(directory);
-
-            var path = Path.Combine(directory, ConfigFile);
-
-            var content = new StringBuilder();
-            content.AppendLine("# ===== API SETTINGS =====");
-            content.AppendLine("# URL endpoint สำหรับส่งข้อมูลไป Drug Dispenser API");
-            content.AppendLine("# Format: http://{HOST}/api/conHIS/insertPrescription");
-            content.AppendLine($"ApiEndpoint={txtApiEndpoint.Text.Trim()}");
-            content.AppendLine($"# API timeout in seconds (default: 30)");
-            content.AppendLine($"ApiTimeoutSeconds={numApiTimeout.Value}");
-            content.AppendLine($"# API retry attempts when failed (default: 3)");
-            content.AppendLine($"ApiRetryAttempts={numApiRetry.Value}");
-            content.AppendLine($"# API retry delay in seconds (default: 5)");
-            content.AppendLine($"ApiRetryDelaySeconds={numApiRetryDelay.Value}");
-            content.AppendLine();
-            content.AppendLine("# ===== PROCESSING SETTINGS =====");
-            content.AppendLine("# ระยะเวลาในการตรวจสอบข้อมูลใหม่ (วินาที)");
-            content.AppendLine("# ค่าที่แนะนำ: 15-60 วินาที");
-            content.AppendLine("ProcessingIntervalSeconds=1");
-            content.AppendLine("# จำนวนสูงสุดของ records ที่ประมวลผลในแต่ละรอบ");
-            content.AppendLine("MaxProcessingBatchSize=50");
-            content.AppendLine("# เริ่มการประมวลผลอัตโนมัติเมื่อเปิดโปรแกรม (true/false)");
-            content.AppendLine("AutoStart=true");
-
-            File.WriteAllText(path, content.ToString());
-        }
-
-        private void SaveLogSettings()
-        {
-            var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-
-            if (config.AppSettings.Settings["LogRetentionDays"] == null)
-            {
-                config.AppSettings.Settings.Add("LogRetentionDays", numLogRetention.Value.ToString());
-            }
-            else
-            {
-                config.AppSettings.Settings["LogRetentionDays"].Value = numLogRetention.Value.ToString();
-            }
-
-            config.Save(ConfigurationSaveMode.Modified);
-            ConfigurationManager.RefreshSection("appSettings");
-        }
-
         private void BtnCancel_Click(object sender, EventArgs e)
         {
             var result = MessageBox.Show(
@@ -394,5 +234,122 @@ namespace interface_Nonthavej
                 this.Close();
             }
         }
+
+        #endregion
+
+        #region Helper Methods
+
+        private void UpdateDatabaseSettingsFromForm()
+        {
+            _dbSettings.Server = txtServer.Text.Trim();
+            _dbSettings.Database = txtDatabase.Text.Trim();
+            _dbSettings.UserId = txtUserId.Text.Trim();
+            _dbSettings.Password = txtPassword.Text.Trim();
+        }
+
+        private void UpdateAPISettingsFromForm()
+        {
+            _apiSettings.ApiEndpoint = txtApiEndpoint.Text.Trim();
+            _apiSettings.ApiTimeoutSeconds = (int)numApiTimeout.Value;
+            _apiSettings.ApiRetryAttempts = (int)numApiRetry.Value;
+            _apiSettings.ApiRetryDelaySeconds = (int)numApiRetryDelay.Value;
+        }
+
+        private void UpdateLogSettingsFromForm()
+        {
+            _logSettings.LogRetentionDays = (int)numLogRetention.Value;
+        }
+
+        private void UpdateAllSettingsFromForm()
+        {
+            UpdateDatabaseSettingsFromForm();
+            UpdateAPISettingsFromForm();
+            UpdateLogSettingsFromForm();
+        }
+
+        private bool ValidateAllSettings()
+        {
+            // Validate Database
+            var dbValidation = _validator.ValidateDatabase(_dbSettings);
+            if (!dbValidation.IsValid)
+            {
+                MessageBox.Show(dbValidation.ErrorMessage, "Validation Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabControl.SelectedTab = tabDatabase;
+                FocusDatabaseField(dbValidation.FieldName);
+                return false;
+            }
+
+            // Validate API
+            var apiValidation = _validator.ValidateAPI(_apiSettings);
+            if (!apiValidation.IsValid)
+            {
+                MessageBox.Show(apiValidation.ErrorMessage, "Validation Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabControl.SelectedTab = tabAPI;
+                FocusAPIField(apiValidation.FieldName);
+                return false;
+            }
+
+            // Validate Log
+            var logValidation = _validator.ValidateLog(_logSettings);
+            if (!logValidation.IsValid)
+            {
+                MessageBox.Show(logValidation.ErrorMessage, "Validation Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabControl.SelectedTab = tabLog;
+                numLogRetention.Focus();
+                return false;
+            }
+
+            return true;
+        }
+
+        private void SaveAllSettings()
+        {
+            _dbManager.Save(_dbSettings);
+            _apiManager.Save(_apiSettings);
+            _logManager.Save(_logSettings);
+        }
+
+        private void FocusDatabaseField(string fieldName)
+        {
+            switch (fieldName)
+            {
+                case "Server":
+                    txtServer.Focus();
+                    break;
+                case "Database":
+                    txtDatabase.Focus();
+                    break;
+                case "UserId":
+                    txtUserId.Focus();
+                    break;
+                case "Password":
+                    txtPassword.Focus();
+                    break;
+            }
+        }
+
+        private void FocusAPIField(string fieldName)
+        {
+            switch (fieldName)
+            {
+                case "ApiEndpoint":
+                    txtApiEndpoint.Focus();
+                    break;
+                case "ApiTimeout":
+                    numApiTimeout.Focus();
+                    break;
+                case "ApiRetry":
+                    numApiRetry.Focus();
+                    break;
+                case "ApiRetryDelay":
+                    numApiRetryDelay.Focus();
+                    break;
+            }
+        }
+
+        #endregion
     }
 }

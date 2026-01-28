@@ -118,7 +118,7 @@ namespace interface_Nonthavej.Services
                     f_prn = ToNull(prn),
                     f_stat = ToNull(stat),
                     f_comment = ToNull(reader["f_comment"]?.ToString()),
-                    f_tomachineno = decimal.TryParse(reader["f_tomachineno"]?.ToString(), out decimal machine) ? machine : (decimal?)null,
+                    f_tomachineno = ToNull(reader["f_tomachineno"]?.ToString()),
                     f_ipd_order_recordno = null,
                     f_status = ToNull(reader["f_status"]?.ToString()),
                     f_remark = null,
