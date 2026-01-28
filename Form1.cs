@@ -1,13 +1,12 @@
 ﻿using interface_Nonthavej.Configuration;
+using interface_Nonthavej.FunctionFrom.From1;
 using interface_Nonthavej.Models;
 using interface_Nonthavej.Services;
 using interface_Nonthavej.Utils;
-using Microsoft.Data.SqlClient;
-using Microsoft.Identity.Client;
 using System;
+using System.Collections.Generic;
 using System.Data;
-using System.Text;
-using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -15,16 +14,25 @@ namespace interface_Nonthavej
 {
     public partial class Form1 : Form
     {
+        // Core services
         private AppConfig _appConfig;
         private LogManager _logger;
         private DataService _dataService;
+
+        // Helper classes
+        private Fnupdatefrom1 _uiHelper;
+        private FnExport _exportHelper;
+        private FnDatabaseConnection _dbConnectionHelper;
+
+        // Service state
         private bool _isServiceRunning = false;
-        private bool _isDatabaseConnected = false;
-        private CancellationTokenSource _cancellationTokenSource;
-        private System.Windows.Forms.Timer _connectionCheckTimer;
-        private System.Windows.Forms.Timer _autoMessageBoxTimer;
-        private DateTime _lastConnectedTime = DateTime.MinValue;
         private bool _wasServiceRunningBeforeDisconnect = false;
+        private CancellationTokenSource _cancellationTokenSource;
+
+        // Timers
+        private System.Windows.Forms.Timer _connectionCheckTimer;
+
+        // Data management
         private DataTable _processedDataTable;
         private DataView _filteredDataView;
         private string _currentStatusFilter = "All";
@@ -34,6 +42,8 @@ namespace interface_Nonthavej
             InitializeComponent();
             InitializeApplication();
         }
+
+        #region Initialization
 
         private void InitializeApplication()
         {
@@ -46,7 +56,7 @@ namespace interface_Nonthavej
                 if (!_appConfig.LoadConfiguration())
                 {
                     _logger.LogError("Failed to load configuration");
-                    ShowAutoClosingMessageBox("ล้มเหลวในการโหลดการกำหนดค่า", "ข้อผิดพลาด");
+                    MessageBox.Show("ล้มเหลวในการโหลดการกำหนดค่า", "ข้อผิดพลาด");
                     return;
                 }
 
@@ -58,7 +68,7 @@ namespace interface_Nonthavej
                 else
                 {
                     _logger.LogWarning("Connection string is empty or null");
-                    ShowAutoClosingMessageBox("Connection string is empty", "ข้อผิดพลาด");
+                    MessageBox.Show("Connection string is empty", "ข้อผิดพลาด");
                     return;
                 }
 
@@ -67,9 +77,15 @@ namespace interface_Nonthavej
                     _logger.LogInfo(_appConfig.GetConfigurationSummary());
                 }
 
-                InitializeDataTable();
-                UpdateUIState();
+                // Initialize helper classes
+                _uiHelper = new Fnupdatefrom1(_logger, this);
+                _exportHelper = new FnExport(_dataService, _logger, _uiHelper);
+                _dbConnectionHelper = new FnDatabaseConnection(_appConfig.ConnectionString, _logger);
 
+                InitializeDataTable();
+                _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
+
+                // Start connection check timer
                 _connectionCheckTimer = new System.Windows.Forms.Timer();
                 _connectionCheckTimer.Interval = 3000;
                 _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
@@ -85,7 +101,7 @@ namespace interface_Nonthavej
             catch (Exception ex)
             {
                 _logger?.LogError("Error initializing application", ex);
-                ShowAutoClosingMessageBox($"ข้อผิดพลาดการเริ่มต้น: {ex.Message}", "ข้อผิดพลาด");
+                MessageBox.Show($"ข้อผิดพลาดการเริ่มต้น: {ex.Message}", "ข้อผิดพลาด");
             }
         }
 
@@ -124,14 +140,21 @@ namespace interface_Nonthavej
             }
         }
 
+        private void DataGridView_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            _uiHelper.ApplyCellFormatting(dataGridView, e);
+        }
+
         private void InitializePanelFilters()
         {
             try
             {
+                // Attach click events to panels
                 totalPanel.Click += TotalPanel_Click;
                 successPanel.Click += SuccessPanel_Click;
                 failedPanel.Click += FailedPanel_Click;
 
+                // Set cursor for all labels inside panels
                 foreach (Control ctrl in totalPanel.Controls)
                 {
                     if (ctrl is Label)
@@ -169,6 +192,10 @@ namespace interface_Nonthavej
             }
         }
 
+        #endregion
+
+        #region Filter Management
+
         private void TotalPanel_Click(object sender, EventArgs e)
         {
             _currentStatusFilter = "All";
@@ -202,8 +229,8 @@ namespace interface_Nonthavej
                     _filteredDataView.RowFilter = $"[Status] = '{_currentStatusFilter}'";
                 }
 
-                UpdateStatusFilterUI();
-                UpdateSummaryCounts();
+                _uiHelper.UpdateStatusFilterUI(totalPanel, successPanel, failedPanel, _currentStatusFilter);
+                _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
 
                 _logger?.LogInfo($"Filter applied: {_currentStatusFilter}");
             }
@@ -213,67 +240,9 @@ namespace interface_Nonthavej
             }
         }
 
-        private void UpdateStatusFilterUI()
-        {
-            try
-            {
-                totalPanel.BorderStyle = (_currentStatusFilter == "All")
-                    ? BorderStyle.Fixed3D
-                    : BorderStyle.FixedSingle;
+        #endregion
 
-                successPanel.BorderStyle = (_currentStatusFilter == "Success")
-                    ? BorderStyle.Fixed3D
-                    : BorderStyle.FixedSingle;
-
-                failedPanel.BorderStyle = (_currentStatusFilter == "Failed")
-                    ? BorderStyle.Fixed3D
-                    : BorderStyle.FixedSingle;
-
-                totalPanel.Invalidate();
-                successPanel.Invalidate();
-                failedPanel.Invalidate();
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error updating filter UI", ex);
-            }
-        }
-
-        private void DataGridView_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            try
-            {
-                if (e.RowIndex >= 0 && e.RowIndex < dataGridView.Rows.Count)
-                {
-                    var row = dataGridView.Rows[e.RowIndex];
-
-                    if (row.Cells["Status"].Value != null)
-                    {
-                        string status = row.Cells["Status"].Value.ToString();
-
-                        if (status == "Success")
-                        {
-                            row.DefaultCellStyle.BackColor = System.Drawing.Color.LightGreen;
-                            row.DefaultCellStyle.SelectionBackColor = System.Drawing.Color.Green;
-                        }
-                        else if (status == "Failed")
-                        {
-                            row.DefaultCellStyle.BackColor = System.Drawing.Color.LightCoral;
-                            row.DefaultCellStyle.SelectionBackColor = System.Drawing.Color.Red;
-                        }
-                        else
-                        {
-                            row.DefaultCellStyle.BackColor = System.Drawing.Color.White;
-                            row.DefaultCellStyle.SelectionBackColor = System.Drawing.SystemColors.Highlight;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error in cell formatting", ex);
-            }
-        }
+        #region Data Loading
 
         private async Task LoadInitialDataAsync()
         {
@@ -291,6 +260,102 @@ namespace interface_Nonthavej
             }
         }
 
+        private async Task LoadDataGridViewAsync(string date = "", string searchText = "")
+        {
+            try
+            {
+                string queryDate = string.IsNullOrEmpty(date)
+                    ? DateHelper.GetCurrentDateChristianEra()
+                    : date.Replace("-", "");
+
+                _logger?.LogInfo($"🔍 [DEBUG] Loading grid data - Input date: '{date}', Query date: '{queryDate}', Search: '{searchText}'");
+
+                if (_dataService == null)
+                {
+                    _logger?.LogWarning("⚠️ DataService is not initialized");
+                    return;
+                }
+
+                if (this.InvokeRequired)
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        if (!_isServiceRunning)
+                        {
+                            _uiHelper.UpdateStatus(statusLabel, "⏳ Loading data...");
+                        }
+                    });
+                }
+                else
+                {
+                    if (!_isServiceRunning)
+                    {
+                        _uiHelper.UpdateStatus(statusLabel, "⏳ Loading data...");
+                    }
+                }
+
+                var data = await _dataService.GetPrescriptionDataAsync(queryDate, searchText);
+
+                _logger?.LogInfo($"📊 [DEBUG] Retrieved {data.Count} records from database");
+
+                if (this.InvokeRequired)
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        _uiHelper.UpdateGridView(_processedDataTable, data, _isServiceRunning,
+                            (status) => _uiHelper.UpdateStatus(statusLabel, status));
+                        _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
+
+                        if (dataGridView.DataSource == null)
+                        {
+                            dataGridView.DataSource = _filteredDataView;
+                        }
+                        else
+                        {
+                            dataGridView.Refresh();
+                        }
+                    });
+                }
+                else
+                {
+                    _uiHelper.UpdateGridView(_processedDataTable, data, _isServiceRunning,
+                        (status) => _uiHelper.UpdateStatus(statusLabel, status));
+                    _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
+
+                    if (dataGridView.DataSource == null)
+                    {
+                        dataGridView.DataSource = _filteredDataView;
+                    }
+                    else
+                    {
+                        dataGridView.Refresh();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError("❌ Error loading DataGridView", ex);
+
+                if (this.InvokeRequired)
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        _uiHelper.UpdateStatus(statusLabel, "❌ Error loading data");
+                        _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
+                    });
+                }
+                else
+                {
+                    _uiHelper.UpdateStatus(statusLabel, "❌ Error loading data");
+                    _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Database Connection Management
+
         private void ConnectionCheckTimer_Tick(object sender, EventArgs e)
         {
             CheckDatabaseConnection();
@@ -298,186 +363,103 @@ namespace interface_Nonthavej
 
         private void CheckDatabaseConnection()
         {
-            if (_appConfig == null || string.IsNullOrEmpty(_appConfig.ConnectionString))
-            {
-                _logger?.LogWarning("Connection string is null or empty");
-                return;
-            }
+            var (isConnected, disconnectTime) = _dbConnectionHelper.CheckConnection();
 
-            using (var connection = new SqlConnection(_appConfig.ConnectionString))
+            if (this.InvokeRequired)
             {
-                try
+                this.Invoke((MethodInvoker)delegate
                 {
-                    connection.Open();
-
-                    if (!_isDatabaseConnected)
+                    if (isConnected)
                     {
-                        _isDatabaseConnected = true;
-                        _logger?.LogInfo("✅ Database connected successfully");
-                        _logger.LogConnectDatabase(true, DateTime.Now);
+                        _dbConnectionHelper.UpdateConnectedUI(
+                            connectionStatusLabel,
+                            startStopButton,
+                            _isServiceRunning,
+                            (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                        );
 
-                        if (this.InvokeRequired)
+                        if (_wasServiceRunningBeforeDisconnect)
                         {
-                            this.Invoke((MethodInvoker)delegate
-                            {
-                                UpdateDatabaseConnectedUI();
-                            });
+                            _logger?.LogInfo("🔄 Auto-restarting service after database reconnection");
+                            StartService();
+                            _wasServiceRunningBeforeDisconnect = false;
+                        }
+                    }
+                    else if (disconnectTime.HasValue)
+                    {
+                        if (_isServiceRunning)
+                        {
+                            _wasServiceRunningBeforeDisconnect = true;
+                            _logger?.LogInfo("⚠️ Service was running before disconnect - will auto-restart when reconnected");
+                            StopService();
                         }
                         else
                         {
-                            UpdateDatabaseConnectedUI();
+                            _wasServiceRunningBeforeDisconnect = false;
                         }
+
+                        _dbConnectionHelper.UpdateDisconnectedUI(
+                            connectionStatusLabel,
+                            startStopButton,
+                            disconnectTime.Value,
+                            (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                        );
                     }
-
-                    connection.Close();
-                }
-                catch (SqlException mySqlEx)
+                });
+            }
+            else
+            {
+                if (isConnected)
                 {
-                    _logger?.LogWarning($"❌ Database connection failed: {mySqlEx.Message}");
+                    _dbConnectionHelper.UpdateConnectedUI(
+                        connectionStatusLabel,
+                        startStopButton,
+                        _isServiceRunning,
+                        (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                    );
 
-                    if (_isDatabaseConnected)
+                    if (_wasServiceRunningBeforeDisconnect)
                     {
-                        _isDatabaseConnected = false;
-                        DateTime disconnectTime = DateTime.Now;
-                        _logger.LogConnectDatabase(false, _lastConnectedTime, disconnectTime);
-
-                        if (this.InvokeRequired)
-                        {
-                            this.Invoke((MethodInvoker)delegate
-                            {
-                                UpdateDatabaseDisconnectedUI(disconnectTime);
-                            });
-                        }
-                        else
-                        {
-                            UpdateDatabaseDisconnectedUI(disconnectTime);
-                        }
+                        _logger?.LogInfo("🔄 Auto-restarting service after database reconnection");
+                        StartService();
+                        _wasServiceRunningBeforeDisconnect = false;
                     }
                 }
-                catch (Exception ex)
+                else if (disconnectTime.HasValue)
                 {
-                    _logger?.LogWarning($"❌ Unexpected error: {ex.Message}");
-
-                    if (_isDatabaseConnected)
+                    if (_isServiceRunning)
                     {
-                        _isDatabaseConnected = false;
-
-                        if (this.InvokeRequired)
-                        {
-                            this.Invoke((MethodInvoker)delegate
-                            {
-                                UpdateDatabaseDisconnectedUI(DateTime.Now);
-                            });
-                        }
+                        _wasServiceRunningBeforeDisconnect = true;
+                        _logger?.LogInfo("⚠️ Service was running before disconnect - will auto-restart when reconnected");
+                        StopService();
                     }
+                    else
+                    {
+                        _wasServiceRunningBeforeDisconnect = false;
+                    }
+
+                    _dbConnectionHelper.UpdateDisconnectedUI(
+                        connectionStatusLabel,
+                        startStopButton,
+                        disconnectTime.Value,
+                        (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                    );
                 }
             }
         }
 
-        private void UpdateDatabaseConnectedUI()
-        {
-            try
-            {
-                _lastConnectedTime = DateTime.Now;
+        #endregion
 
-                connectionStatusLabel.Text = $"Database: 🟢 Connected (Last Connected: {_lastConnectedTime:yyyy-MM-dd HH:mm:ss})";
-                connectionStatusLabel.ForeColor = System.Drawing.Color.Green;
-                startStopButton.Enabled = true;
-                startStopButton.BackColor = System.Drawing.Color.FromArgb(52, 152, 219);
-
-                if (!_isServiceRunning)
-                {
-                    UpdateStatus("⏹ Stopped - Ready to start");
-                }
-
-                if (_wasServiceRunningBeforeDisconnect)
-                {
-                    _logger?.LogInfo("🔄 Auto-restarting service after database reconnection");
-                    StartService();
-                    _wasServiceRunningBeforeDisconnect = false;
-                }
-
-                _logger?.LogInfo($"UI updated - database connected at {_lastConnectedTime:yyyy-MM-dd HH:mm:ss}");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error updating connected UI", ex);
-            }
-        }
-
-        private void UpdateDatabaseDisconnectedUI(DateTime disconnectTime)
-        {
-            try
-            {
-                if (_isServiceRunning)
-                {
-                    _wasServiceRunningBeforeDisconnect = true;
-                    _logger?.LogInfo("⚠️ Service was running before disconnect - will auto-restart when reconnected");
-                    StopService();
-                }
-                else
-                {
-                    _wasServiceRunningBeforeDisconnect = false;
-                }
-
-                string lastConnectInfo = _lastConnectedTime != DateTime.MinValue
-                    ? $" (Last Connected: {_lastConnectedTime:yyyy-MM-dd HH:mm:ss})"
-                    : "";
-
-                connectionStatusLabel.Text = $"Database: 🔴 Disconnected (Disconnected at: {disconnectTime:yyyy-MM-dd HH:mm:ss}){lastConnectInfo}";
-                connectionStatusLabel.ForeColor = System.Drawing.Color.Red;
-                startStopButton.Enabled = false;
-                startStopButton.BackColor = System.Drawing.Color.Gray;
-
-                UpdateStatus("🔴 Database Disconnected - Service stopped");
-
-                _logger?.LogInfo($"UI updated - database disconnected at {disconnectTime:yyyy-MM-dd HH:mm:ss}");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error updating disconnected UI", ex);
-            }
-        }
-
-        private void UpdateStatus(string status)
-        {
-            if (statusLabel.InvokeRequired)
-            {
-                statusLabel.Invoke(new Action<string>(UpdateStatus), status);
-                return;
-            }
-            statusLabel.Text = $"Status: {status}";
-        }
-
-        private void UpdateUIState()
-        {
-            try
-            {
-                startStopButton.Enabled = _isDatabaseConnected;
-                startStopButton.BackColor = _isDatabaseConnected
-                    ? System.Drawing.Color.FromArgb(52, 152, 219)
-                    : System.Drawing.Color.Gray;
-
-                statusLabel.Text = _isServiceRunning
-                    ? "Status: ▶ Running"
-                    : "Status: ⏹ Stopped";
-
-                _logger?.LogInfo($"UI State Updated - DB: {_isDatabaseConnected}, Running: {_isServiceRunning}");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error updating UI state", ex);
-            }
-        }
+        #region Service Control
 
         private void StartStopButton_Click(object sender, EventArgs e)
         {
             try
             {
-                if (!_isDatabaseConnected)
+                if (!_dbConnectionHelper.IsDatabaseConnected)
                 {
                     _logger?.LogWarning("Cannot start - database not connected");
-                    ShowAutoClosingMessageBox("ไม่สามารถเชื่อมต่อฐานข้อมูล", "ข้อผิดพลาด");
+                    _uiHelper.ShowAutoClosingMessageBox(this, "ไม่สามารถเชื่อมต่อฐานข้อมูล", "ข้อผิดพลาด");
                     return;
                 }
 
@@ -495,7 +477,7 @@ namespace interface_Nonthavej
             catch (Exception ex)
             {
                 _logger?.LogError("Error in StartStopButton_Click", ex);
-                ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
+                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
             }
         }
 
@@ -504,7 +486,7 @@ namespace interface_Nonthavej
             try
             {
                 if (_isServiceRunning) return;
-                if (!_isDatabaseConnected) return;
+                if (!_dbConnectionHelper.IsDatabaseConnected) return;
                 if (_dataService == null) return;
 
                 _isServiceRunning = true;
@@ -512,9 +494,7 @@ namespace interface_Nonthavej
 
                 this.Invoke((MethodInvoker)delegate
                 {
-                    startStopButton.Text = "⏹ Stop";
-                    startStopButton.BackColor = System.Drawing.Color.FromArgb(231, 76, 60);
-                    UpdateStatus("▶ Running - Waiting for data...");
+                    _uiHelper.UpdateServiceRunningUI(startStopButton, statusLabel);
                 });
 
                 _logger.LogInfo("Service started");
@@ -524,7 +504,9 @@ namespace interface_Nonthavej
             {
                 _logger?.LogError("Error starting service", ex);
                 _isServiceRunning = false;
-                this.Invoke((MethodInvoker)delegate { UpdateUIState(); });
+                this.Invoke((MethodInvoker)delegate {
+                    _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
+                });
             }
         }
 
@@ -541,9 +523,7 @@ namespace interface_Nonthavej
 
                 this.Invoke((MethodInvoker)delegate
                 {
-                    startStopButton.Text = "▶ Start";
-                    startStopButton.BackColor = System.Drawing.Color.FromArgb(52, 152, 219);
-                    UpdateStatus("⏹ Stopped");
+                    _uiHelper.UpdateServiceStoppedUI(startStopButton, statusLabel);
                 });
 
                 _logger.LogInfo("Service stopped");
@@ -554,7 +534,6 @@ namespace interface_Nonthavej
             }
         }
 
-        // ⭐⭐⭐ ปรับปรุง ProcessDataLoop ให้ real-time
         private async Task ProcessDataLoop(CancellationToken cancellationToken)
         {
             int loopCount = 0;
@@ -567,7 +546,7 @@ namespace interface_Nonthavej
 
                     this.Invoke((MethodInvoker)delegate
                     {
-                        UpdateStatus($"▶ Running - Checking for new data... (Loop #{loopCount})");
+                        _uiHelper.UpdateStatus(statusLabel, $"▶ Running - Checking for new data... (Loop #{loopCount})");
                     });
 
                     var (successCount, failedCount, errors) = await _dataService.ProcessAndSendDataAsync();
@@ -576,25 +555,20 @@ namespace interface_Nonthavej
 
                     this.Invoke((MethodInvoker)delegate
                     {
-                        lastCheckLabel.Text = $"Last Check: {DateTime.Now:HH:mm:ss}";
+                        _uiHelper.UpdateLastCheckLabels(lastCheckLabel, lastSuccessLabel, lastFoundLabel,
+                            successCount, failedCount);
 
                         if (totalFound > 0)
                         {
-                            UpdateStatus($"▶ Running - Processed {totalFound} items ({successCount} success, {failedCount} failed)");
-
-                            if (successCount > 0)
-                            {
-                                lastSuccessLabel.Text = $"Last Success: {DateTime.Now:HH:mm:ss} ({successCount} items)";
-                            }
-
-                            lastFoundLabel.Text = $"Last Found: {totalFound} items";
+                            _uiHelper.UpdateStatus(statusLabel,
+                                $"▶ Running - Processed {totalFound} items ({successCount} success, {failedCount} failed)");
 
                             string currentDate = DateHelper.ConvertToChristianEraFormatted(DateTime.Now);
                             Task.Run(() => LoadDataGridViewAsync(currentDate));
                         }
                         else
                         {
-                            UpdateStatus($"▶ Running - No new data found");
+                            _uiHelper.UpdateStatus(statusLabel, "▶ Running - No new data found");
                         }
                     });
 
@@ -605,7 +579,6 @@ namespace interface_Nonthavej
 
                     _logger.LogInfo($"Loop #{loopCount} Complete: {successCount} success, {failedCount} failed");
 
-                    // ⭐ ลดเวลารอจาก 5 นาทีเป็น 10-15 วินาที
                     int delaySeconds = _appConfig?.ProcessingIntervalSeconds ?? 15;
 
                     _logger.LogInfo($"⏳ Waiting {delaySeconds}s before next check...");
@@ -616,7 +589,7 @@ namespace interface_Nonthavej
 
                         this.Invoke((MethodInvoker)delegate
                         {
-                            UpdateStatus($"▶ Running - Waiting {i}s for next check...");
+                            _uiHelper.UpdateStatus(statusLabel, $"▶ Running - Waiting {i}s for next check...");
                         });
 
                         await Task.Delay(1000, cancellationToken);
@@ -633,7 +606,7 @@ namespace interface_Nonthavej
 
                     this.Invoke((MethodInvoker)delegate
                     {
-                        UpdateStatus($"⚠️ Error - Retrying in 10s...");
+                        _uiHelper.UpdateStatus(statusLabel, "⚠️ Error - Retrying in 10s...");
                     });
 
                     await Task.Delay(10000, cancellationToken);
@@ -642,6 +615,10 @@ namespace interface_Nonthavej
 
             _logger?.LogInfo("ProcessDataLoop ended");
         }
+
+        #endregion
+
+        #region Button Event Handlers
 
         private async void SearchButton_Click(object sender, EventArgs e)
         {
@@ -652,17 +629,17 @@ namespace interface_Nonthavej
 
                 _logger?.LogInfo($"🔍 Search initiated - Date: {selectedDate}, Search: '{searchText}'");
 
-                UpdateStatus($"🔍 Searching for '{searchText}' on {selectedDate}...");
+                _uiHelper.UpdateStatus(statusLabel, $"🔍 Searching for '{searchText}' on {selectedDate}...");
 
                 await LoadDataGridViewAsync(selectedDate, searchText);
 
-                UpdateStatus($"✅ Search completed");
+                _uiHelper.UpdateStatus(statusLabel, "✅ Search completed");
             }
             catch (Exception ex)
             {
                 _logger?.LogError("Error in SearchButton_Click", ex);
-                UpdateStatus("❌ Search failed");
-                ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
+                _uiHelper.UpdateStatus(statusLabel, "❌ Search failed");
+                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
             }
         }
 
@@ -676,20 +653,20 @@ namespace interface_Nonthavej
                 searchTextBox.Clear();
                 dateTimePicker.Value = DateTime.Now;
 
-                UpdateStatus("🔄 Refreshing data...");
+                _uiHelper.UpdateStatus(statusLabel, "🔄 Refreshing data...");
 
                 string currentDate = DateHelper.ConvertToChristianEraFormatted(DateTime.Now);
                 await LoadDataGridViewAsync(currentDate, "");
 
-                UpdateStatus("✅ Data refreshed");
+                _uiHelper.UpdateStatus(statusLabel, "✅ Data refreshed");
 
                 _logger?.LogInfo($"Data refreshed - Reset to current date: {currentDate}");
             }
             catch (Exception ex)
             {
                 _logger?.LogError("Error in RefreshButton_Click", ex);
-                UpdateStatus("❌ Refresh failed");
-                ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
+                _uiHelper.UpdateStatus(statusLabel, "❌ Refresh failed");
+                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
             }
         }
 
@@ -711,9 +688,13 @@ namespace interface_Nonthavej
                         if (_appConfig.LoadConfiguration())
                         {
                             _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
+                            _dbConnectionHelper = new FnDatabaseConnection(_appConfig.ConnectionString, _logger);
+                            _exportHelper = new FnExport(_dataService, _logger, _uiHelper);
+
                             _logger?.LogInfo("Configuration reloaded successfully");
 
-                            ShowAutoClosingMessageBox(
+                            _uiHelper.ShowAutoClosingMessageBox(
+                                this,
                                 "✅ การตั้งค่าได้รับการอัพเดทแล้ว\nบางการตั้งค่าอาจต้อง Restart โปรแกรม",
                                 "สำเร็จ",
                                 3000
@@ -724,7 +705,8 @@ namespace interface_Nonthavej
                         else
                         {
                             _logger?.LogError("Failed to reload configuration");
-                            ShowAutoClosingMessageBox(
+                            _uiHelper.ShowAutoClosingMessageBox(
+                                this,
                                 "⚠️ ไม่สามารถโหลดการตั้งค่าใหม่ได้\nกรุณาตรวจสอบไฟล์ config",
                                 "คำเตือน"
                             );
@@ -735,287 +717,41 @@ namespace interface_Nonthavej
             catch (Exception ex)
             {
                 _logger?.LogError("Error in SettingsButton_Click", ex);
-                ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
+                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
             }
         }
 
-        private async Task LoadDataGridViewAsync(string date = "", string searchText = "")
+        private async void ExportButton_Click(object sender, EventArgs e)
         {
             try
             {
-                string queryDate = string.IsNullOrEmpty(date)
-    ? DateHelper.GetCurrentDateChristianEra()
-    : date.Replace("-", "");
+                _logger?.LogInfo("Export button clicked");
 
-                _logger?.LogInfo($"🔍 [DEBUG] Loading grid data - Input date: '{date}', Query date: '{queryDate}', Search: '{searchText}'");
-
-                if (_dataService == null)
+                if (dataGridView.Rows.Count == 0)
                 {
-                    _logger?.LogWarning("⚠️ DataService is not initialized");
+                    _uiHelper.ShowAutoClosingMessageBox(this, "ไม่มีข้อมูลให้ Export", "แจ้งเตือน");
                     return;
                 }
 
-                if (this.InvokeRequired)
+                if (dataGridView.SelectedRows.Count == 0)
                 {
-                    this.Invoke((MethodInvoker)delegate
-                    {
-                        if (!_isServiceRunning)
-                        {
-                            UpdateStatus("⏳ Loading data...");
-                        }
-                    });
-                }
-                else
-                {
-                    if (!_isServiceRunning)
-                    {
-                        UpdateStatus("⏳ Loading data...");
-                    }
+                    _uiHelper.ShowAutoClosingMessageBox(this, "กรุณาเลือกข้อมูลที่ต้องการ Export ก่อน", "แจ้งเตือน");
+                    return;
                 }
 
-                var data = await _dataService.GetPrescriptionDataAsync(queryDate, searchText);
-
-                _logger?.LogInfo($"📊 [DEBUG] Retrieved {data.Count} records from database");
-
-                if (this.InvokeRequired)
-                {
-                    this.Invoke((MethodInvoker)delegate
-                    {
-                        UpdateGridView(data);
-
-                        if (!_isServiceRunning)
-                        {
-                            UpdateStatus($"✅ Loaded {data.Count} records");
-                        }
-                    });
-                }
-                else
-                {
-                    UpdateGridView(data);
-
-                    if (!_isServiceRunning)
-                    {
-                        UpdateStatus($"✅ Loaded {data.Count} records");
-                    }
-                }
+                await _exportHelper.ExportSelectedRowsAsync(this, dataGridView,
+                    (status) => _uiHelper.UpdateStatus(statusLabel, status));
             }
             catch (Exception ex)
             {
-                _logger?.LogError("❌ Error loading DataGridView", ex);
-
-                if (this.InvokeRequired)
-                {
-                    this.Invoke((MethodInvoker)delegate
-                    {
-                        UpdateStatus($"❌ Error loading data");
-                        ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
-                    });
-                }
-                else
-                {
-                    UpdateStatus($"❌ Error loading data");
-                    ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
-                }
+                _logger?.LogError("Error in ExportButton_Click", ex);
+                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
             }
         }
 
-        private void UpdateGridView(List<GridViewDataModel> data)
-        {
-            try
-            {
-                _logger?.LogInfo($"📝 [DEBUG] Clearing DataTable, current rows: {_processedDataTable.Rows.Count}");
+        #endregion
 
-                _processedDataTable.Rows.Clear();
-
-                _logger?.LogInfo($"➕ [DEBUG] Adding {data.Count} rows to DataTable");
-
-                int addedCount = 0;
-                foreach (var item in data)
-                {
-                    try
-                    {
-                        string displayStatus = item.Status == "1" ? "Success" :
-                                              (item.Status == "3" ? "Failed" : "Pending");
-                        string formattedPrescriptionDate = FormatPrescriptionDate(item.Prescriptiondate);
-                        _processedDataTable.Rows.Add(
-                            formattedPrescriptionDate,
-                            item.PrescriptionNo,
-                            item.HN,
-                            item.PatientName,
-                            displayStatus
-                        );
-
-                        addedCount++;
-
-                        if (addedCount == 1)
-                        {
-                            _logger?.LogInfo($"📄 [DEBUG] First row: Rx={item.PrescriptionNo}, HN={item.HN}, Status={item.Status}→{displayStatus}");
-                        }
-                    }
-                    catch (Exception rowEx)
-                    {
-                        _logger?.LogError($"❌ Error adding row: Rx={item.PrescriptionNo}", rowEx);
-                    }
-                }
-
-                _logger?.LogInfo($"✅ [DEBUG] Added {addedCount}/{data.Count} rows successfully");
-
-                UpdateSummaryCounts();
-
-                if (dataGridView.DataSource == null)
-                {
-                    _logger?.LogWarning("⚠️ [DEBUG] DataGridView.DataSource is NULL, setting it now");
-                    dataGridView.DataSource = _filteredDataView;
-                }
-                else
-                {
-                    dataGridView.Refresh();
-                }
-
-                if (_isServiceRunning)
-                {
-                    UpdateStatus($"▶ Running - Grid updated with {addedCount} records");
-                }
-                else
-                {
-                    UpdateStatus($"⏹ Stopped - Showing {addedCount} records");
-                }
-
-                _logger?.LogInfo($"✅ Grid loaded with {addedCount} rows, Total rows in table: {_processedDataTable.Rows.Count}");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("❌ Error in UpdateGridView", ex);
-                UpdateStatus("❌ Error updating grid");
-            }
-        }
-
-        private void UpdateSummaryCounts()
-        {
-            try
-            {
-                int totalCount = _processedDataTable.Rows.Count;
-                int successCount = 0;
-                int failedCount = 0;
-
-                foreach (DataRow row in _processedDataTable.Rows)
-                {
-                    string status = row["Status"]?.ToString() ?? "";
-                    if (status == "Success") successCount++;
-                    else if (status == "Failed") failedCount++;
-                }
-
-                totalCountLabel.Text = totalCount.ToString();
-                successCountLabel.Text = successCount.ToString();
-                failedCountLabel.Text = failedCount.ToString();
-
-                _logger?.LogInfo($"Summary: Total={totalCount}, Success={successCount}, Failed={failedCount}");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error updating summary counts", ex);
-            }
-        }
-
-        private void ShowAutoClosingMessageBox(string message, string title = "แจ้งเตือน", int delayMs = 5000)
-        {
-            try
-            {
-                var messageForm = new Form
-                {
-                    Text = title,
-                    StartPosition = FormStartPosition.CenterParent,
-                    Width = 400,
-                    Height = 150,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false,
-                    ShowInTaskbar = false,
-                    TopMost = true
-                };
-
-                var messageLabel = new Label
-                {
-                    Text = message,
-                    Dock = DockStyle.Fill,
-                    TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
-                    Padding = new Padding(10)
-                };
-
-                var okButton = new Button
-                {
-                    Text = "ตกลง",
-                    DialogResult = DialogResult.OK,
-                    Dock = DockStyle.Bottom,
-                    Height = 40
-                };
-
-                messageForm.Controls.Add(messageLabel);
-                messageForm.Controls.Add(okButton);
-                messageForm.AcceptButton = okButton;
-
-                _autoMessageBoxTimer = new System.Windows.Forms.Timer();
-                _autoMessageBoxTimer.Interval = delayMs;
-                _autoMessageBoxTimer.Tick += (s, e) =>
-                {
-                    _autoMessageBoxTimer.Stop();
-                    messageForm.Close();
-                };
-                _autoMessageBoxTimer.Start();
-
-                messageForm.ShowDialog(this);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error showing message box", ex);
-            }
-        }
-
-        private string FormatPrescriptionDate(string dateStr)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(dateStr))
-                    return "";
-
-                if (dateStr.Length >= 14)
-                {
-                    string year = dateStr.Substring(0, 4);
-                    string month = dateStr.Substring(4, 2);
-                    string day = dateStr.Substring(6, 2);
-                    string hour = dateStr.Substring(8, 2);
-                    string minute = dateStr.Substring(10, 2);
-                    string second = dateStr.Substring(12, 2);
-
-                    return $"{year}-{month}-{day} {hour}:{minute}:{second}";
-                }
-                else if (dateStr.Length >= 12)
-                {
-                    string year = dateStr.Substring(0, 4);
-                    string month = dateStr.Substring(4, 2);
-                    string day = dateStr.Substring(6, 2);
-                    string hour = dateStr.Substring(8, 2);
-                    string minute = dateStr.Substring(10, 2);
-
-                    return $"{year}-{month}-{day} {hour}:{minute}:00";
-                }
-                else if (dateStr.Length >= 8)
-                {
-                    string year = dateStr.Substring(0, 4);
-                    string month = dateStr.Substring(4, 2);
-                    string day = dateStr.Substring(6, 2);
-
-                    return $"{year}-{month}-{day} 00:00:00";
-                }
-
-                return dateStr;
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning($"⚠️ Error formatting date '{dateStr}': {ex.Message}");
-                return dateStr;
-            }
-        }
+        #region Form Lifecycle
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -1047,8 +783,6 @@ namespace interface_Nonthavej
 
                 _connectionCheckTimer?.Stop();
                 _connectionCheckTimer?.Dispose();
-                _autoMessageBoxTimer?.Stop();
-                _autoMessageBoxTimer?.Dispose();
                 _cancellationTokenSource?.Dispose();
 
                 _logger?.LogInfo("Application closed successfully");
@@ -1061,162 +795,6 @@ namespace interface_Nonthavej
             base.OnFormClosing(e);
         }
 
-        private async void ExportButton_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                _logger?.LogInfo("Export button clicked");
-
-                if (dataGridView.Rows.Count == 0)
-                {
-                    ShowAutoClosingMessageBox("ไม่มีข้อมูลให้ Export", "แจ้งเตือน");
-                    return;
-                }
-
-                if (dataGridView.SelectedRows.Count == 0)
-                {
-                    ShowAutoClosingMessageBox("กรุณาเลือกข้อมูลที่ต้องการ Export ก่อน", "แจ้งเตือน");
-                    return;
-                }
-
-                await ExportSelectedRowsAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error in ExportButton_Click", ex);
-                ShowAutoClosingMessageBox($"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
-            }
-        }
-
-        private async Task ExportSelectedRowsAsync()
-        {
-            try
-            {
-                if (dataGridView.SelectedRows.Count == 0)
-                {
-                    ShowAutoClosingMessageBox("กรุณาเลือกข้อมูลที่ต้องการ Export", "แจ้งเตือน");
-                    return;
-                }
-
-                _logger?.LogInfo($"Exporting {dataGridView.SelectedRows.Count} selected rows");
-
-                var prescriptionList = new List<(string prescriptionNo, string prescriptionDate)>();
-
-                foreach (DataGridViewRow row in dataGridView.SelectedRows)
-                {
-                    try
-                    {
-                        string prescriptionNo = row.Cells["Order No"]?.Value?.ToString() ?? "";
-                        string transactionDateTime = row.Cells["Transaction DateTime"]?.Value?.ToString() ?? "";
-
-                        string prescriptionDate = "";
-                        if (!string.IsNullOrEmpty(transactionDateTime) && transactionDateTime.Length >= 10)
-                        {
-                            prescriptionDate = transactionDateTime.Substring(0, 10).Replace("-", "");
-                        }
-
-                        if (!string.IsNullOrEmpty(prescriptionNo) && !string.IsNullOrEmpty(prescriptionDate))
-                        {
-                            prescriptionList.Add((prescriptionNo, prescriptionDate));
-                            _logger?.LogInfo($"   Adding: Rx={prescriptionNo}, Date={prescriptionDate}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.LogWarning($"Error processing row for export: {ex.Message}");
-                    }
-                }
-
-                if (prescriptionList.Count == 0)
-                {
-                    ShowAutoClosingMessageBox("ไม่สามารถดึงข้อมูล Prescription ได้", "แจ้งเตือน");
-                    return;
-                }
-
-                _logger?.LogInfo($"📦 Fetching full data for {prescriptionList.Count} prescriptions from database...");
-
-                UpdateStatus($"⏳ Loading full data for export ({prescriptionList.Count} prescriptions)...");
-
-                var fullDataList = await _dataService.GetFullPrescriptionDataAsync(prescriptionList);
-
-                if (fullDataList == null || fullDataList.Count == 0)
-                {
-                    ShowAutoClosingMessageBox("ไม่พบข้อมูลจาก Database", "แจ้งเตือน");
-                    UpdateStatus("⚠️ Export cancelled - No data found");
-                    return;
-                }
-
-                _logger?.LogInfo($"✅ Retrieved {fullDataList.Count} records from database");
-
-                using (var saveFileDialog = new SaveFileDialog())
-                {
-                    saveFileDialog.Filter = "JSON Files (*.json)|*.json";
-                    saveFileDialog.DefaultExt = "json";
-                    string fileNamePart = "";
-                    if (prescriptionList.Count == 1)
-                    {
-                        // ถ้ามี 1 prescription ใช้ Order No นั้น
-                        fileNamePart = prescriptionList[0].prescriptionNo;
-                    }
-                    else if (prescriptionList.Count > 1)
-                    {
-                        // ถ้ามีหลาย prescription ใช้ Order No แรกและสุดท้าย
-                        string firstOrder = prescriptionList[0].prescriptionNo;
-                        string lastOrder = prescriptionList[prescriptionList.Count - 1].prescriptionNo;
-                        fileNamePart = $"{firstOrder}_to_{lastOrder}";
-                    }
-
-                    saveFileDialog.FileName = $"Export_{fileNamePart}_{DateTime.Now:yyyyMMdd_HHmmss}.json";
-
-                    if (saveFileDialog.ShowDialog() == DialogResult.OK)
-                    {
-                        string filePath = saveFileDialog.FileName;
-
-                        UpdateStatus($"💾 Exporting to {Path.GetFileName(filePath)}...");
-
-                        var body = new PrescriptionBodyResponse
-                        {
-                            data = fullDataList.ToArray()
-                        };
-
-                        var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
-                        {
-                            PropertyNamingPolicy = null,
-                            WriteIndented = true,
-                            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
-                        });
-
-                        await Task.Run(() => File.WriteAllText(filePath, json, Encoding.UTF8));
-
-                        _logger?.LogInfo($"✅ Export completed: {filePath}");
-                        _logger?.LogInfo($"   Total records exported: {fullDataList.Count}");
-                        _logger?.LogInfo($"   File size: {new FileInfo(filePath).Length / 1024.0:F2} KB");
-
-                        UpdateStatus($"✅ Export completed - {fullDataList.Count} records");
-
-                        ShowAutoClosingMessageBox(
-                            $"✅ Export สำเร็จ!\n\n" +
-                            $"จำนวน Prescriptions: {prescriptionList.Count}\n" +
-                            $"จำนวน Records: {fullDataList.Count}\n" +
-                            $"ขนาดไฟล์: {new FileInfo(filePath).Length / 1024.0:F2} KB\n" +
-                            $"บันทึกที่: {filePath}",
-                            "สำเร็จ",
-                            3000
-                        );
-                    }
-                    else
-                    {
-                        UpdateStatus("⚠️ Export cancelled");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("Error exporting selected rows", ex);
-                UpdateStatus("❌ Export failed");
-                ShowAutoClosingMessageBox($"ข้อผิดพลาดในการ Export: {ex.Message}", "ข้อผิดพลาด");
-            }
-        }
+        #endregion
     }
 }

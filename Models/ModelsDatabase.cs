@@ -96,7 +96,7 @@ namespace interface_Nonthavej.Models
         public string Prescriptiondate { get; set; }
         public string PatientName { get; set; }
         public string HN { get; set; }
-        public string ItemNameTH { get; set; }
+        public string ItemName { get; set; }
         public string OrderQty { get; set; }
         public string OrderUnit { get; set; }
         public string Dosage { get; set; }
