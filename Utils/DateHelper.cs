@@ -129,7 +129,7 @@ namespace interface_Nonthavej.Utils
         /// <summary>
         /// Extract date (yyyyMMdd) from transaction datetime string
         /// </summary>
-        public static string ExtractDateFromTransactionDateTime(string transactionDateTime)
+        public static string ExtractDateInYyyyMmDd(string transactionDateTime)
         {
             if (!string.IsNullOrEmpty(transactionDateTime) && transactionDateTime.Length >= 10)
             {
@@ -137,5 +137,6 @@ namespace interface_Nonthavej.Utils
             }
             return "";
         }
+        
     }
 }

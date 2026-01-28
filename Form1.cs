@@ -64,6 +64,7 @@ namespace interface_Nonthavej
                 if (_appConfig != null && !string.IsNullOrEmpty(_appConfig.ConnectionString))
                 {
                     _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
+                    _dataServiceTest = new DataServicetest(_appConfig.ConnectionString, _logger, _appConfig.MaxProcessingBatchSize);
                     _logger.LogInfo($"DataService initialized");
                 }
                 else

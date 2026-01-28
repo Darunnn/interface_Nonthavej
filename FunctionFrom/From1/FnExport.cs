@@ -39,7 +39,7 @@ namespace interface_Nonthavej.FunctionFrom.From1
                     string prescriptionNo = row.Cells["Order No"]?.Value?.ToString() ?? "";
                     string transactionDateTime = row.Cells["Transaction DateTime"]?.Value?.ToString() ?? "";
 
-                    string prescriptionDate = DateHelper.ExtractDateFromTransactionDateTime(transactionDateTime);
+                    string prescriptionDate = DateHelper.ExtractDateInYyyyMmDd(transactionDateTime);
 
                     if (!string.IsNullOrEmpty(prescriptionNo) && !string.IsNullOrEmpty(prescriptionDate))
                     {
