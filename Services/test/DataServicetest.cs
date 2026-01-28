@@ -9,7 +9,7 @@ using System.Data;
 using interface_Nonthavej.Models;
 using interface_Nonthavej.Utils;
 
-namespace interface_Nonthavej.Services
+namespace interface_Nonthavej.Services.test
 {
     public class DataServicetest
     {
@@ -53,8 +53,8 @@ namespace interface_Nonthavej.Services
                 {
                     UniqID = $"{ToNull(reader["f_prescriptionno"]?.ToString())}{ToNull(reader["f_seq"]?.ToString())}",
                     f_prescriptionno = ToNull(reader["f_prescriptionno"]?.ToString()),
-                    f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : (decimal?)null,
-                    f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : (decimal?)null,
+                    f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : null,
+                    f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : null,
                     f_prescriptiondate = ToNull(prescriptionDateFormatted),
                     f_ordercreatedate = ToNull(reader["f_orderacceptdate"]?.ToString()),
                     f_ordertargetdate = ToNull(reader["f_ordertargetdate"]?.ToString()),
@@ -90,11 +90,11 @@ namespace interface_Nonthavej.Services
                     f_orderitemname = ToNull(reader["f_orderitemname"]?.ToString()),
                     f_orderitemnameTH = ToNull(reader["f_Thai_Name"]?.ToString()),
                     f_orderitemnamegeneric = ToNull(reader["f_orderitemgenericname"]?.ToString()),
-                    f_orderqty = decimal.TryParse(reader["f_orderqty"]?.ToString(), out decimal qty) ? qty : (decimal?)null,
+                    f_orderqty = decimal.TryParse(reader["f_orderqty"]?.ToString(), out decimal qty) ? qty : null,
                     f_orderunitcode = ToNull(reader["f_orderunitcode"]?.ToString()),
                     f_orderunitdesc = ToNull(reader["f_orderunitdesc"]?.ToString()),
-                    f_dosage = decimal.TryParse(reader["f_dosage"]?.ToString(), out decimal dosage) ? dosage : (decimal?)null,
-                    f_dosageunit = ToNull(reader["f_dosageunit"]?.ToString()),
+                    f_dosage = decimal.TryParse(reader["f_dosage"]?.ToString(), out decimal dosage) ? dosage : null,
+                    f_dosageunit = null,
                     f_dosagetext = null,
                     f_drugformcode = ToNull(reader["f_drugform"]?.ToString()),
                     f_drugformdesc = ToNull(reader["f_drugformname"]?.ToString()),
@@ -172,7 +172,6 @@ namespace interface_Nonthavej.Services
                     [f_ordertype],[f_aux_label_memo],[f_aux_local_memo],[f_BarCodeRef]
                 FROM tb_thaneshosp_middle
                 WHERE f_dispensestatus='0' 
-                    AND CONVERT(varchar(10), f_prescriptionnodate, 112) = @CurrentDate
                 ORDER BY f_orderacceptdate";
 
             try
@@ -299,7 +298,7 @@ namespace interface_Nonthavej.Services
             if (string.IsNullOrEmpty(prnValue) || !int.TryParse(prnValue, out int value))
                 return "0";
 
-            return (type == 1 && value == 1) || (type == 2 && value == 2) ? "1" : "0";
+            return type == 1 && value == 1 || type == 2 && value == 2 ? "1" : "0";
         }
     }
 }

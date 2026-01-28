@@ -2,6 +2,7 @@
 using interface_Nonthavej.FunctionFrom.From1;
 using interface_Nonthavej.Models;
 using interface_Nonthavej.Services;
+using interface_Nonthavej.Services.test;
 using interface_Nonthavej.Utils;
 using System;
 using System.Collections.Generic;
@@ -18,7 +19,7 @@ namespace interface_Nonthavej
         private AppConfig _appConfig;
         private LogManager _logger;
         private DataService _dataService;
-
+        private DataServicetest _dataServiceTest;
         // Helper classes
         private Fnupdatefrom1 _uiHelper;
         private FnExport _exportHelper;
@@ -81,6 +82,7 @@ namespace interface_Nonthavej
                 _uiHelper = new Fnupdatefrom1(_logger, this);
                 _exportHelper = new FnExport(_dataService, _logger, _uiHelper);
                 _dbConnectionHelper = new FnDatabaseConnection(_appConfig.ConnectionString, _logger);
+                _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
 
                 InitializeDataTable();
                 _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
@@ -504,7 +506,8 @@ namespace interface_Nonthavej
             {
                 _logger?.LogError("Error starting service", ex);
                 _isServiceRunning = false;
-                this.Invoke((MethodInvoker)delegate {
+                this.Invoke((MethodInvoker)delegate
+                {
                     _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
                 });
             }
@@ -796,5 +799,126 @@ namespace interface_Nonthavej
         }
 
         #endregion
+        #region Test Button Handler
+
+        private async void button1_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                _logger?.LogInfo("🧪 Test button clicked - Starting JSON export test");
+
+                // แสดง confirmation dialog
+                var confirmResult = MessageBox.Show(
+                    "คุณต้องการดึงข้อมูล 10 รายการแรกและ Export เป็น JSON หรือไม่?",
+                    "ยืนยันการทดสอบ",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                if (confirmResult != DialogResult.Yes)
+                {
+                    _logger?.LogInfo("Test cancelled by user");
+                    return;
+                }
+
+                // แสดงสถานะกำลังประมวลผล
+                _uiHelper.UpdateStatus(statusLabel, "🧪 Testing - Processing data...");
+
+              
+
+                // เรียกใช้งาน DataServicetest
+                if (_dataServiceTest == null)
+                {
+                    _logger?.LogError("DataServicetest not initialized");
+                    _uiHelper.ShowAutoClosingMessageBox(this, "Service not initialized. กรุณารีสตาร์ทโปรแกรม", "ข้อผิดพลาด");
+                    return;
+                }
+
+                var (successCount, failedCount, errors, jsonFilePath) = await _dataServiceTest.ProcessAndExportToJsonAsync();
+
+                // แสดงผลลัพธ์
+                if (!string.IsNullOrEmpty(jsonFilePath))
+                {
+                    _logger?.LogInfo($"✅ Test completed successfully");
+                    _logger?.LogInfo($"   Success: {successCount}, Failed: {failedCount}");
+                    _logger?.LogInfo($"   File saved: {jsonFilePath}");
+
+                    string fileInfo = "";
+                    if (File.Exists(jsonFilePath))
+                    {
+                        var fileSize = new FileInfo(jsonFilePath).Length;
+                        fileInfo = $"\nขนาดไฟล์: {fileSize / 1024.0:F2} KB";
+                    }
+
+                    _uiHelper.ShowAutoClosingMessageBox(
+                        this,
+                        $"✅ ทดสอบสำเร็จ!\n\n" +
+                        $"จำนวนข้อมูล: {successCount} รายการ\n" +
+                        $"ข้อมูลที่ล้มเหลว: {failedCount} รายการ" +
+                        fileInfo + "\n\n" +
+                        $"ไฟล์ถูกบันทึกที่:\n{jsonFilePath}",
+                        "ผลการทดสอบ",
+                        5000
+                    );
+
+                    _uiHelper.UpdateStatus(statusLabel, $"✅ Test completed - {successCount} records exported");
+
+                    // เปิดโฟลเดอร์ที่บันทึกไฟล์
+                    if (File.Exists(jsonFilePath))
+                    {
+                        var openFolderResult = MessageBox.Show(
+                            "ต้องการเปิดโฟลเดอร์ที่บันทึกไฟล์หรือไม่?",
+                            "เปิดโฟลเดอร์",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Question
+                        );
+
+                        if (openFolderResult == DialogResult.Yes)
+                        {
+                            string folderPath = Path.GetDirectoryName(jsonFilePath);
+                            System.Diagnostics.Process.Start("explorer.exe", folderPath);
+                        }
+                    }
+                }
+                else
+                {
+                    _logger?.LogError("❌ Test failed - No file was created");
+
+                    string errorMessage = "❌ การทดสอบล้มเหลว\n\n";
+                    if (errors.Count > 0)
+                    {
+                        errorMessage += "ข้อผิดพลาด:\n" + string.Join("\n", errors);
+                    }
+
+                    _uiHelper.ShowAutoClosingMessageBox(
+                        this,
+                        errorMessage,
+                        "ข้อผิดพลาด"
+                    );
+
+                    _uiHelper.UpdateStatus(statusLabel, "❌ Test failed");
+                }
+
+                // Re-enable ปุ่ม
+                // testButton.Enabled = true; // uncomment this
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError("❌ Error in TestButton_Click", ex);
+                _uiHelper.UpdateStatus(statusLabel, "❌ Test error");
+                _uiHelper.ShowAutoClosingMessageBox(
+                    this,
+                    $"ข้อผิดพลาดในการทดสอบ:\n{ex.Message}",
+                    "ข้อผิดพลาด"
+                );
+
+                // Re-enable ปุ่ม
+                // testButton.Enabled = true; // uncomment this
+            }
+        }
+
+        #endregion
+
+
     }
 }

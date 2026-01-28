@@ -73,7 +73,7 @@ namespace interface_Nonthavej.Models
         public string f_prn { get; set; }
         public string f_stat { get; set; }
         public string f_comment { get; set; }
-        public decimal? f_tomachineno { get; set; }
+        public string f_tomachineno { get; set; }
         public string f_ipd_order_recordno { get; set; }
         public string f_status { get; set; }
         public string f_remark { get; set; }
