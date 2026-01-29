@@ -72,7 +72,7 @@ namespace interface_Nonthavej.Services
                     f_prescriptionno = ToNull(reader["f_prescriptionno"]?.ToString()),
                     f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : null,
                     f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : null,
-                    f_prescriptiondate = ToNull(prescriptionDateFormatted),
+                    f_prescriptionnodate = ToNull(prescriptionDateFormatted),
                     f_ordercreatedate = ToNull(ordercreateDateFormatted),
                     f_ordertargetdate = ToNull(ordertargetDateFormatted),
                     f_ordertargettime = DateTime.TryParse(reader["f_ordertargettime"]?.ToString(), out var dt)
@@ -159,7 +159,6 @@ namespace interface_Nonthavej.Services
             var errors = new List<string>();
             var currentDate = DateHelper.GetCurrentDateChristianEra();
 
-            // ⭐ SQL Server: ใช้ TOP แทน LIMIT
             string query = $@"
                 SELECT TOP (@BatchSize)
                    [f_prescriptionno]
@@ -256,7 +255,6 @@ namespace interface_Nonthavej.Services
                 ORDER BY f_orderacceptdate";
             try
             {
-                // ⭐ SQL Server: ใช้ SqlConnection แทน MySqlConnection
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
@@ -271,19 +269,23 @@ namespace interface_Nonthavej.Services
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             var batchList = new List<PrescriptionBodyRequest>();
-                            var batchPrescriptionInfo = new List<(string prescriptionNo, string prescriptionDate)>();
+                            
+                            var batchPrescriptionInfo = new List<(string seq, string prescriptionNo, string prescriptionDate)>();
 
                             while (await reader.ReadAsync())
                             {
+                                string seq = "";
                                 string prescriptionNo = "";
                                 string prescriptionDateFormatted = "";
 
                                 try
                                 {
+                                    
+                                    seq = reader["f_seq"]?.ToString();
                                     prescriptionNo = reader["f_prescriptionno"]?.ToString();
-                                    var prescriptionDate = reader["f_prescriptiondate"]?.ToString();
-                                    prescriptionDateFormatted = ExtractDate(prescriptionDate);
-
+                                    prescriptionDateFormatted = reader["f_prescriptionnodate"]?.ToString();
+                                    // prescriptionDateFormatted = ExtractDate(prescriptionDate);
+                                  
                                     if (string.IsNullOrEmpty(prescriptionNo))
                                     {
                                         failedCount++;
@@ -292,7 +294,8 @@ namespace interface_Nonthavej.Services
 
                                     var prescriptionBody = BuildPrescriptionBody(reader);
                                     batchList.Add(prescriptionBody);
-                                    batchPrescriptionInfo.Add((prescriptionNo, prescriptionDateFormatted));
+                                    // ✅ แก้ไข: เรียงลำดับให้ตรงกับที่ประกาศ
+                                    batchPrescriptionInfo.Add((seq, prescriptionNo, prescriptionDateFormatted));
 
                                     if (batchList.Count >= _batchSize)
                                     {
@@ -310,9 +313,10 @@ namespace interface_Nonthavej.Services
                                     failedCount++;
                                     _logger?.LogError($"❌ Row Error - Rx: {prescriptionNo}", ex);
 
-                                    if (!string.IsNullOrEmpty(prescriptionNo) && !string.IsNullOrEmpty(prescriptionDateFormatted))
+                                    if (!string.IsNullOrEmpty(seq) && !string.IsNullOrEmpty(prescriptionNo) && !string.IsNullOrEmpty(prescriptionDateFormatted))
                                     {
-                                        await UpdateDispenseStatusAsync(prescriptionNo, prescriptionDateFormatted, "3");
+                                        // ✅ แก้ไข: เรียงลำดับพารามิเตอร์
+                                        await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDateFormatted, "3");
                                     }
                                 }
                             }
@@ -347,7 +351,7 @@ namespace interface_Nonthavej.Services
 
         private async Task<(int success, int failed)> SendBatchToApiAsync(
             List<PrescriptionBodyRequest> batchList,
-            List<(string prescriptionNo, string prescriptionDate)> batchInfo)
+            List<(string seq, string prescriptionNo, string prescriptionDate)> batchInfo)
         {
             int successCount = 0;
             int failedCount = 0;
@@ -362,7 +366,7 @@ namespace interface_Nonthavej.Services
                 var json = JsonSerializer.Serialize(body, _jsonOptions);
 
                 _logger?.LogInfo($"📤 Sending {batchList.Count} items ({json.Length / 1024.0:F1} KB)");
-
+                
                 if (batchList.Count > 0)
                 {
                     var first = batchList[0];
@@ -375,7 +379,7 @@ namespace interface_Nonthavej.Services
                 if (response.IsSuccessStatusCode)
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    _logger?.LogInfo($"✅ Success - {responseContent.Substring(0, Math.Min(100, responseContent.Length))}");
+                    _logger?.LogInfo($"✅ Success - {responseContent}");
 
                     successCount = batchList.Count;
                     await UpdateBatchStatusAsync(batchInfo, "1");
@@ -399,8 +403,9 @@ namespace interface_Nonthavej.Services
             return (successCount, failedCount);
         }
 
+        // ✅ แก้ไข: เปลี่ยนเป็น tuple 3 ค่า และใช้ทั้ง 3 คอลัมน์ในการ UPDATE
         private async Task UpdateBatchStatusAsync(
-            List<(string prescriptionNo,  string prescriptionDate)> batchInfo,
+            List<(string seq, string prescriptionNo, string prescriptionDate)> batchInfo,
             string status)
         {
             if (batchInfo == null || batchInfo.Count == 0)
@@ -408,39 +413,45 @@ namespace interface_Nonthavej.Services
 
             try
             {
-                // ⭐ SQL Server: ใช้ SqlConnection
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
 
-                    var prescriptionNos = batchInfo.Select(x => x.prescriptionNo).Distinct().ToList();
-
-                    if (prescriptionNos.Count == 0)
-                        return;
-
-                    var inClause = string.Join(",", prescriptionNos.Select((_, i) => $"@Rx{i}"));
-
-                    string query = $@"
-                        UPDATE tb_thaneshosp_middle 
-                        SET f_dispensestatus = @Status
-                        WHERE f_prescriptionno IN ({inClause})
-                        AND CONVERT(varchar(10),f_prescriptionnodate,112) = @CurrentDate
-                        ORDER BY f_prescriptionnodate,f_prescriptionno,f_seq ";
-
-                    using (var command = new SqlCommand(query, connection))
+                    using (var transaction = connection.BeginTransaction())
                     {
-                        command.Parameters.AddWithValue("@Status", status);
-                        command.Parameters.AddWithValue("@CurrentDate", DateHelper.GetCurrentDateChristianEra());
-
-                        for (int i = 0; i < prescriptionNos.Count; i++)
+                        try
                         {
-                            command.Parameters.AddWithValue($"@Rx{i}", prescriptionNos[i]);
+                            foreach (var (seq, prescriptionNo, prescriptionDate) in batchInfo)
+                            {
+                                
+                                string updateQuery = @"
+                                    UPDATE tb_thaneshosp_middle
+                                    SET f_dispensestatus = @Status  
+                                    WHERE f_seq = @Seq
+                                      AND f_prescriptionno = @PrescriptionNo 
+                                      AND f_prescriptionnodate = @PrescriptionDate";
+
+                                using (var command = new SqlCommand(updateQuery, connection, transaction))
+                                {
+                                    command.Parameters.AddWithValue("@Status", status);
+                                    command.Parameters.AddWithValue("@Seq", seq);
+                                    command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
+                                    command.Parameters.AddWithValue("@PrescriptionDate", prescriptionDate);
+                                    command.CommandTimeout = 30;
+
+                                    await command.ExecuteNonQueryAsync();
+                                }
+                            }
+
+                            await transaction.CommitAsync();
+                            _logger?.LogInfo($"✅ Updated {batchInfo.Count} records to status '{status}'");
                         }
-
-                        command.CommandTimeout = 30;
-
-                        var affected = await command.ExecuteNonQueryAsync();
-                        _logger?.LogInfo($"✅ Updated {affected} records to status '{status}' (Expected: {batchInfo.Count})");
+                        catch (Exception ex)
+                        {
+                            await transaction.RollbackAsync();
+                            _logger?.LogError($"❌ Transaction rollback", ex);
+                            throw;
+                        }
                     }
                 }
             }
@@ -450,38 +461,44 @@ namespace interface_Nonthavej.Services
             }
         }
 
-        private async Task UpdateDispenseStatusAsync(string prescriptionNo, string prescriptionDate, string status)
+        // ✅ แก้ไข: เปลี่ยนลำดับพารามิเตอร์
+        private async Task UpdateDispenseStatusAsync(string seq, string prescriptionNo, string prescriptionDate, string status)
         {
-            if (string.IsNullOrEmpty(prescriptionNo) || string.IsNullOrEmpty(prescriptionDate))
+            if (string.IsNullOrEmpty(seq) || string.IsNullOrEmpty(prescriptionNo) || string.IsNullOrEmpty(prescriptionDate))
                 return;
 
             string query = @"
                 UPDATE tb_thaneshosp_middle 
                 SET f_dispensestatus = @Status
-                WHERE f_prescriptionno = @prescriptionno 
-                AND CONVERT(varchar(10),f_prescriptionnodate,112) = @prescriptiondate
-                ORDER BY f_prescriptionnodate,f_prescriptionno,f_seq";
+                WHERE f_seq = @Seq
+                  AND f_prescriptionno = @PrescriptionNo 
+                  AND f_prescriptionnodate = @PrescriptionDate";
 
             try
             {
-                // ⭐ SQL Server: ใช้ SqlConnection
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
                     using (var command = new SqlCommand(query, connection))
                     {
-                        command.Parameters.AddWithValue("@prescriptionno", prescriptionNo);
-                        command.Parameters.AddWithValue("@prescriptiondate", prescriptionDate);
                         command.Parameters.AddWithValue("@Status", status);
+                        command.Parameters.AddWithValue("@Seq", seq);
+                        command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
+                        command.Parameters.AddWithValue("@PrescriptionDate", prescriptionDate);
                         command.CommandTimeout = 10;
 
-                        await command.ExecuteNonQueryAsync();
+                        int affected = await command.ExecuteNonQueryAsync();
+
+                        if (affected > 0)
+                            _logger?.LogInfo($"✅ Updated Seq:{seq}, Rx:{prescriptionNo} to status {status}");
+                        else
+                            _logger?.LogWarning($"⚠️ No record updated for Seq:{seq}, Rx:{prescriptionNo}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogError($"❌ Update Error - Rx={prescriptionNo}", ex);
+                _logger?.LogError($"❌ Update Error - Seq:{seq}, Rx={prescriptionNo}", ex);
             }
         }
 
@@ -519,7 +536,6 @@ namespace interface_Nonthavej.Services
 
             try
             {
-                // ⭐ SQL Server: ใช้ SqlConnection
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
@@ -546,7 +562,7 @@ namespace interface_Nonthavej.Services
                                         PrescriptionNo = reader["f_prescriptionno"]?.ToString() ?? "",
                                         Seq = reader["f_seq"]?.ToString() ?? "",
                                         SeqMax = reader["f_seqmax"]?.ToString() ?? "",
-                                        Prescriptiondate = reader["f_prescriptiondate"]?.ToString() ?? "",
+                                        Prescriptiondate = reader["f_prescriptionnodate"]?.ToString() ?? "",
                                         PatientName = reader["f_patientname"]?.ToString() ?? "",
                                         HN = reader["f_hn"]?.ToString() ?? "",
                                         ItemName = reader["f_orderitemname"]?.ToString() ?? "",
@@ -594,7 +610,6 @@ namespace interface_Nonthavej.Services
 
             try
             {
-                // ⭐ SQL Server: ใช้ SqlConnection
                 using (var connection = new SqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
@@ -646,26 +661,23 @@ namespace interface_Nonthavej.Services
             if (string.IsNullOrEmpty(dateStr))
                 return "";
 
-            // พยายาม parse เป็น DateTime แล้วแปลงเป็น yyyyMMdd
             if (DateTime.TryParse(dateStr, out DateTime date))
                 return date.ToString("yyyyMMdd");
 
             return "";
         }
-        /// <summary>
-        /// Extract date (yyyy-MM-dd) from transaction datetime string
-        /// </summary>
+
         public static string ExtractDate2(string dateStr)
         {
             if (string.IsNullOrEmpty(dateStr))
                 return "";
 
-            // พยายาม parse เป็น DateTime แล้วแปลงเป็น yyyyMMdd
             if (DateTime.TryParse(dateStr, out DateTime date))
                 return date.ToString("yyyy-MM-dd");
 
             return "";
         }
+
         private string ProcessSex(string sex)
         {
             if (string.IsNullOrEmpty(sex))

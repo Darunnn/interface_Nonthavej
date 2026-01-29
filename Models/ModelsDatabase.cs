@@ -12,7 +12,7 @@ namespace interface_Nonthavej.Models
         public string f_prescriptionno { get; set; }
         public decimal? f_seq { get; set; }
         public decimal? f_seqmax { get; set; }
-        public string f_prescriptiondate { get; set; }
+        public string f_prescriptionnodate { get; set; }
         public string f_ordercreatedate { get; set; }
         public string f_ordertargetdate { get; set; }
         public string f_ordertargettime { get; set; }

@@ -65,7 +65,7 @@ namespace interface_Nonthavej.Services.test
                     f_prescriptionno = ToNull(reader["f_prescriptionno"]?.ToString()),
                     f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : null,
                     f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : null,
-                    f_prescriptiondate = ToNull(prescriptionDateFormatted),
+                    f_prescriptionnodate = ToNull(prescriptionDateFormatted),
                     f_ordercreatedate = ToNull(ordercreateDateFormatted),
                     f_ordertargetdate = ToNull(ordertargetDateFormatted),
                     f_ordertargettime = DateTime.TryParse(reader["f_ordertargettime"]?.ToString(), out var dt)

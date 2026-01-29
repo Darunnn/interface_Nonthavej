@@ -25,6 +25,7 @@ namespace interface_Nonthavej
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             statusLabel = new Label();
             lastCheckLabel = new Label();
             lastFoundLabel = new Label();
@@ -50,11 +51,10 @@ namespace interface_Nonthavej
             failedCountLabel = new Label();
             groupBox1 = new GroupBox();
             groupBox2 = new GroupBox();
+            button1 = new Button();
             groupBox3 = new GroupBox();
             groupBox4 = new GroupBox();
             dataGridView = new DataGridView();
-            
-            button1 = new Button();
             totalPanel.SuspendLayout();
             successPanel.SuspendLayout();
             failedPanel.SuspendLayout();
@@ -364,6 +364,16 @@ namespace interface_Nonthavej
             groupBox2.TabStop = false;
             groupBox2.Text = "🎮 Service Controls";
             // 
+            // button1
+            // 
+            button1.Location = new Point(475, 23);
+            button1.Name = "button1";
+            button1.Size = new Size(101, 37);
+            button1.TabIndex = 7;
+            button1.Text = "test";
+            button1.UseVisualStyleBackColor = true;
+            button1.Click += button1_Click;
+            // 
             // groupBox3
             // 
             groupBox3.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -415,16 +425,6 @@ namespace interface_Nonthavej
             dataGridView.Size = new Size(822, 277);
             dataGridView.TabIndex = 4;
             // 
-            // button1
-            // 
-            button1.Location = new Point(475, 23);
-            button1.Name = "button1";
-            button1.Size = new Size(101, 37);
-            button1.TabIndex = 7;
-            button1.Text = "test";
-            button1.UseVisualStyleBackColor = true;
-            button1.Click += button1_Click;
-            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
@@ -437,6 +437,7 @@ namespace interface_Nonthavej
             Controls.Add(groupBox3);
             Controls.Add(groupBox2);
             Controls.Add(groupBox1);
+            Icon = (Icon)resources.GetObject("$this.Icon");
             Margin = new Padding(4, 3, 4, 3);
             MaximumSize = new Size(865, 744);
             MinimumSize = new Size(865, 744);
@@ -458,7 +459,7 @@ namespace interface_Nonthavej
         }
 
         #endregion
-       
+
         // Status Zone
         private System.Windows.Forms.Label statusLabel;
         private System.Windows.Forms.Label lastCheckLabel;
