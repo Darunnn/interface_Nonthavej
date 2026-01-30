@@ -8,26 +8,29 @@ using System.Threading.Tasks;
 using System.Data;
 using interface_Nonthavej.Models;
 using interface_Nonthavej.Utils;
+using interface_Nonthavej.Database;
+using System.Threading;
 
 namespace interface_Nonthavej.Services.test
 {
-    public class DataServicetest
+    public class DataServicetest : IDisposable
     {
-        private readonly string _connectionString;
+        private readonly DatabaseConnectionPool _connectionPool;
         private readonly LogManager _logger;
         private readonly int _batchSize;
+        private bool _disposed = false;
 
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = null,
-            WriteIndented = true, // เปลี่ยนเป็น true เพื่อให้อ่านง่าย
+            WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         };
 
         public DataServicetest(string connectionString, LogManager logger = null, int batchSize = 100)
         {
-            _connectionString = connectionString;
+            _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _logger = logger ?? new LogManager();
             _batchSize = batchSize;
         }
@@ -145,7 +148,7 @@ namespace interface_Nonthavej.Services.test
             }
         }
 
-        public async Task<(int success, int failed, List<string> errors, string jsonFilePath)> ProcessAndExportToJsonAsync()
+        public async Task<(int success, int failed, List<string> errors, string jsonFilePath)> ProcessAndExportToJsonAsync(CancellationToken cancellationToken = default)
         {
             int successCount = 0;
             int failedCount = 0;
@@ -153,7 +156,16 @@ namespace interface_Nonthavej.Services.test
             var allPrescriptions = new List<PrescriptionBodyRequest>();
             var currentDate = DateHelper.GetCurrentDateChristianEra();
 
-            string query = $@"
+            // ตรวจสอบ Circuit Breaker
+            var circuitState = _connectionPool.GetCircuitState();
+            if (circuitState == CircuitBreakerState.Open)
+            {
+                _logger?.LogWarning("⚠️ Circuit Breaker is OPEN - Cannot export data");
+                errors.Add("Circuit breaker is OPEN");
+                return (0, 0, errors, null);
+            }
+
+            string query = @"
                 SELECT
                     [f_prescriptionno],[f_seq],[f_seqmax],[f_prescriptionnodate],
                     [f_prioritycode],[f_prioritydesc],[f_durationcode],[f_durationdesc],
@@ -184,43 +196,42 @@ namespace interface_Nonthavej.Services.test
                 WHERE f_dispensestatus='0' AND f_prescriptionno = 'D69-00001'
                 ORDER BY f_orderacceptdate";
 
+            SqlConnection connection = null;
+
             try
             {
-                using (var connection = new SqlConnection(_connectionString))
+                connection = await _connectionPool.GetConnectionAsync(cancellationToken);
+                _logger?.LogInfo($"📊 เริ่มดึงข้อมูล วันที่: {currentDate}");
+
+                using (var command = new SqlCommand(query, connection))
                 {
-                    await connection.OpenAsync();
-                    _logger?.LogInfo($"📊 เริ่มดึงข้อมูล วันที่: {currentDate}");
+                    command.Parameters.AddWithValue("@CurrentDate", currentDate);
+                    command.Parameters.AddWithValue("@BatchSize", _batchSize);
+                    command.CommandTimeout = 60;
+                    command.CommandType = CommandType.Text;
 
-                    using (var command = new SqlCommand(query, connection))
+                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        command.Parameters.AddWithValue("@CurrentDate", currentDate);
-                        command.Parameters.AddWithValue("@BatchSize", _batchSize);
-                        command.CommandTimeout = 60;
-                        command.CommandType = CommandType.Text;
-
-                        using (var reader = await command.ExecuteReaderAsync())
+                        while (await reader.ReadAsync(cancellationToken))
                         {
-                            while (await reader.ReadAsync())
+                            try
                             {
-                                try
-                                {
-                                    var prescriptionNo = reader["f_prescriptionno"]?.ToString();
+                                var prescriptionNo = reader["f_prescriptionno"]?.ToString();
 
-                                    if (string.IsNullOrEmpty(prescriptionNo))
-                                    {
-                                        failedCount++;
-                                        continue;
-                                    }
-
-                                    var prescriptionBody = BuildPrescriptionBody(reader);
-                                    allPrescriptions.Add(prescriptionBody);
-                                    successCount++;
-                                }
-                                catch (Exception ex)
+                                if (string.IsNullOrEmpty(prescriptionNo))
                                 {
                                     failedCount++;
-                                    _logger?.LogError($"❌ Row Error", ex);
+                                    continue;
                                 }
+
+                                var prescriptionBody = BuildPrescriptionBody(reader);
+                                allPrescriptions.Add(prescriptionBody);
+                                successCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                failedCount++;
+                                _logger?.LogError($"❌ Row Error", ex);
                             }
                         }
                     }
@@ -232,6 +243,12 @@ namespace interface_Nonthavej.Services.test
                 _logger?.LogInfo($"📊 สรุป - Success: {successCount}, Failed: {failedCount}");
 
                 return (successCount, failedCount, errors, jsonFilePath);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Circuit breaker"))
+            {
+                _logger?.LogWarning("⚠️ Circuit breaker prevented export operation");
+                errors.Add("Circuit breaker is active");
+                return (successCount, failedCount, errors, null);
             }
             catch (SqlException ex)
             {
@@ -245,25 +262,29 @@ namespace interface_Nonthavej.Services.test
                 errors.Add($"Critical error: {ex.Message}");
                 return (successCount, failedCount, errors, null);
             }
+            finally
+            {
+                if (connection != null)
+                {
+                    _connectionPool.ReleaseConnection(connection);
+                }
+            }
         }
 
         private async Task<string> SaveToJsonFile(List<PrescriptionBodyRequest> prescriptions, string currentDate)
         {
             try
             {
-                // สร้างโฟลเดอร์ Export ถ้ายังไม่มี
                 string exportFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Export");
                 if (!Directory.Exists(exportFolder))
                 {
                     Directory.CreateDirectory(exportFolder);
                 }
 
-                // สร้างชื่อไฟล์ตามวันที่และเวลา
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 string fileName = $"Prescription_{currentDate}_{timestamp}.json";
                 string filePath = Path.Combine(exportFolder, fileName);
 
-                // แปลงเป็น JSON และบันทึกไฟล์
                 string jsonContent = JsonSerializer.Serialize(prescriptions, _jsonOptions);
                 await File.WriteAllTextAsync(filePath, jsonContent, Encoding.UTF8);
 
@@ -286,31 +307,29 @@ namespace interface_Nonthavej.Services.test
 
             return "";
         }
+
         public static string ExtractDate2(string dateStr)
         {
             if (string.IsNullOrEmpty(dateStr))
                 return "";
 
-            // พยายาม parse เป็น DateTime แล้วแปลงเป็น yyyyMMdd
             if (DateTime.TryParse(dateStr, out DateTime date))
                 return date.ToString("yyyy-MM-dd");
 
             return "";
         }
+
         private string ProcessSex(string sex)
         {
             if (string.IsNullOrEmpty(sex))
                 return "U";
 
-            switch (sex)
+            return sex switch
             {
-                case "1":
-                    return "F";
-                case "2":
-                    return "M";
-                default:
-                    return "U";
-            }
+                "1" => "F",
+                "2" => "M",
+                _ => "U"
+            };
         }
 
         private string ProcessPRN(string prnValue, int type)
@@ -319,6 +338,15 @@ namespace interface_Nonthavej.Services.test
                 return "0";
 
             return type == 1 && value == 1 || type == 2 && value == 2 ? "1" : "0";
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _connectionPool?.Dispose();
+                _disposed = true;
+            }
         }
     }
 }

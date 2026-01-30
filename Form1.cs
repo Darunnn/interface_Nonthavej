@@ -297,7 +297,7 @@ namespace interface_Nonthavej
                     }
                 }
 
-                var data = await _dataService.GetPrescriptionDataAsync(queryDate, searchText);
+                var data = await _dataService.GetPrescriptionDataAsync(queryDate, searchText, CancellationToken.None);
 
                 _logger?.LogInfo($"📊 [DEBUG] Retrieved {data.Count} records from database");
 
@@ -553,7 +553,7 @@ namespace interface_Nonthavej
                         _uiHelper.UpdateStatus(statusLabel, $"▶ Running - Checking for new data... (Loop #{loopCount})");
                     });
 
-                    var (successCount, failedCount, errors) = await _dataService.ProcessAndSendDataAsync();
+                    var (successCount, failedCount, errors) = await _dataService.ProcessAndSendDataAsync(cancellationToken);
 
                     int totalFound = successCount + failedCount;
 
@@ -795,6 +795,9 @@ namespace interface_Nonthavej
             {
                 _logger?.LogError("Error during form closing", ex);
             }
+
+            _dataService?.Dispose();
+            _dataServiceTest?.Dispose();
 
             base.OnFormClosing(e);
         }
