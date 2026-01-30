@@ -72,7 +72,7 @@ namespace interface_Nonthavej.Services
                     f_prescriptionno = ToNull(reader["f_prescriptionno"]?.ToString()),
                     f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : null,
                     f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : null,
-                    f_prescriptionnodate = ToNull(prescriptionDateFormatted),
+                    f_prescriptiondate = ToNull(prescriptionDateFormatted),
                     f_ordercreatedate = ToNull(ordercreateDateFormatted),
                     f_ordertargetdate = ToNull(ordertargetDateFormatted),
                     f_ordertargettime = DateTime.TryParse(reader["f_ordertargettime"]?.ToString(), out var dt)
@@ -98,8 +98,8 @@ namespace interface_Nonthavej.Services
                     f_warddesc = ToNull(reader["f_warddesc"]?.ToString()),
                     f_roomcode = ToNull(reader["f_roomcode"]?.ToString()),
                     f_roomdesc = ToNull(reader["f_roomdesc"]?.ToString()),
-                    f_bedcode = ToNull(reader["f_bedcode"]?.ToString()),
-                    f_beddesc = ToNull(reader["f_beddesc"]?.ToString()),
+                    f_bedcode = null,
+                    f_beddesc = null,
                     f_right = null,
                     f_drugallergy = null,
                     f_diagnosis = null,
@@ -113,13 +113,13 @@ namespace interface_Nonthavej.Services
                     f_dosage = decimal.TryParse(reader["f_dosage"]?.ToString(), out decimal dosage) ? dosage : null,
                     f_dosageunit = null,
                     f_dosagetext = null,
-                    f_drugformcode = ToNull(reader["f_drugform"]?.ToString()),
-                    f_drugformdesc = ToNull(reader["f_drugformname"]?.ToString()),
+                    f_drugformcode = null,
+                    f_drugformdesc = null,
                     f_HAD = ToNull(reader["f_heighAlertDrug"]?.ToString()) ?? "0",
                     f_narcoticFlg = ToNull(reader["f_narcoticDrug"]?.ToString()) ?? "0",
                     f_psychotropic = ToNull(reader["f_psychotropicDrug"]?.ToString()) ?? "0",
                     f_binlocation = null,
-                    f_itemidentify = ToNull(reader["f_itemidentify"]?.ToString()),
+                    f_itemidentify = null,
                     f_itemlotno = ToNull(reader["f_itemlotcode"]?.ToString()),
                     f_itemlotexpire = ToNull(itemlotExpireFormatted),
                     f_instructioncode = ToNull(reader["f_instructioncode"]?.ToString()),
@@ -283,8 +283,8 @@ namespace interface_Nonthavej.Services
                                     
                                     seq = reader["f_seq"]?.ToString();
                                     prescriptionNo = reader["f_prescriptionno"]?.ToString();
-                                    prescriptionDateFormatted = reader["f_prescriptionnodate"]?.ToString();
-                                    // prescriptionDateFormatted = ExtractDate(prescriptionDate);
+                                    var prescriptionDate = reader["f_prescriptionnodate"]?.ToString();
+                                     prescriptionDateFormatted = ExtractDate(prescriptionDate);
                                   
                                     if (string.IsNullOrEmpty(prescriptionNo))
                                     {
@@ -429,7 +429,7 @@ namespace interface_Nonthavej.Services
                                     SET f_dispensestatus = @Status  
                                     WHERE f_seq = @Seq
                                       AND f_prescriptionno = @PrescriptionNo 
-                                      AND f_prescriptionnodate = @PrescriptionDate";
+                                      AND Convert(varchar(10),f_prescriptionnodate,112) = @PrescriptionDate";
 
                                 using (var command = new SqlCommand(updateQuery, connection, transaction))
                                 {
@@ -472,7 +472,7 @@ namespace interface_Nonthavej.Services
                 SET f_dispensestatus = @Status
                 WHERE f_seq = @Seq
                   AND f_prescriptionno = @PrescriptionNo 
-                  AND f_prescriptionnodate = @PrescriptionDate";
+                  AND Convert(varchar(10),f_prescriptionnodate,112) = @PrescriptionDate";
 
             try
             {
