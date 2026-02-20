@@ -302,9 +302,10 @@ namespace interface_Nonthavej.Services
                 {
                     _connectionPool.ReleaseConnection(connection);
                 }
+                
             }
 
-            _logger?.LogInfo($"📊 Complete - Success: {successCount}, Failed: {failedCount}");
+            
             return (successCount, failedCount, errors);
         }
 

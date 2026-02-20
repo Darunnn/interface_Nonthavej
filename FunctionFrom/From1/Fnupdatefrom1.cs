@@ -194,7 +194,7 @@ using System.Windows.Forms;
                     {
                         string displayStatus = item.Status == "1" ? "Success" :
                                               (item.Status == "3" ? "Failed" : "Pending");
-                        string formattedPrescriptionDate = DateHelper.FormatPrescriptionDate(item.Prescriptiondate, _logger);
+                        string formattedPrescriptionDate = DateTime.Parse(item.Prescriptiondate).ToString("dd/MM/yyyy HH:mm:ss");
 
                         dataTable.Rows.Add(
                             formattedPrescriptionDate,

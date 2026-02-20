@@ -102,7 +102,7 @@ namespace interface_Nonthavej.Database
                     await HealthCheckAsync(connection, cancellationToken);
                 });
 
-                _logger?.LogInfo($"✅ Connection acquired from pool");
+                
                 return connection;
             }
             catch (Exception ex)
@@ -127,7 +127,7 @@ namespace interface_Nonthavej.Database
                         connection.Close();
                     }
                     connection.Dispose();
-                    _logger?.LogInfo("✅ Connection released to pool");
+                   
                 }
             }
             catch (Exception ex)
