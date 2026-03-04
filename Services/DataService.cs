@@ -113,7 +113,7 @@ namespace interface_Nonthavej.Services
                     f_orderunitcode = ToNull(reader["f_orderunitcode"]?.ToString()),
                     f_orderunitdesc = ToNull(reader["f_orderunitdesc"]?.ToString()),
                     f_dosage = decimal.TryParse(reader["f_dosage"]?.ToString(), out decimal dosage) ? dosage : null,
-                    f_dosageunit = null,
+                    f_dosageunit = ToNull(reader["f_dosageunit"]?.ToString()),
                     f_dosagetext = null,
                     f_drugformcode = null,
                     f_drugformdesc = null,
