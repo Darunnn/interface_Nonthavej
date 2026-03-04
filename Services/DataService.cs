@@ -35,10 +35,7 @@ namespace interface_Nonthavej.Services
         {
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _apiUrl = apiUrl;
-            _httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(30)
-            };
+            _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.ConnectionClose = false;
             _logger = logger ?? new LogManager();
             _batchSize = batchSize;
@@ -136,15 +133,15 @@ namespace interface_Nonthavej.Services
                     f_frequencytime = ToNull(reader["f_frequencyTime"]?.ToString()),
                     f_dosagedispense = ToNull(reader["f_dosagedispense"]?.ToString()),
                     f_dayofweek = null,
-                    f_noteprocessing = ToNull(reader["f_aux_label_memo"]?.ToString()),
+                    f_noteprocessing = ToNull(reader["f_freetext1"]?.ToString()),
                     f_prn = ToNull(prn),
                     f_stat = ToNull(stat),
                     f_comment = ToNull(reader["f_comment"]?.ToString()),
                     f_tomachineno = ToNull(reader["f_tomachineno"]?.ToString()),
                     f_ipd_order_recordno = null,
                     f_status = ToNull(reader["f_status"]?.ToString()),
-                    f_remark = null,
-                    f_labeltext = ToNull(reader["f_aux_local_memo"]?.ToString()),
+                    f_remark = ToNull(reader["f_aux_local_memo"]?.ToString()),
+                    f_labeltext = ToNull(reader["f_aux_label_memo"]?.ToString()),
                     f_ipdpt_record_no = ToNull(reader["f_ipdpt_record_no"]?.ToString()),
                     f_qr_code = ToNull(reader["f_QR_Code"]?.ToString()),
                     f_barcode_ref = ToNull(reader["f_BarCodeRef"]?.ToString())
