@@ -649,10 +649,8 @@ namespace interface_Nonthavej.Services
         {
             if (string.IsNullOrEmpty(dateStr))
                 return DateTime.Now.ToString("yyyy-MM-dd");
-
             if (DateTime.TryParse(dateStr, out DateTime date))
                 return date.ToString("yyyy-MM-dd");
-
             return "";
         }
         private string ProcessSex(string sex)
