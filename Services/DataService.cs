@@ -53,14 +53,14 @@ namespace interface_Nonthavej.Services
                 var seq = reader["f_seq"]?.ToString();
                 var prescriptionDate = reader["f_prescriptionnodate"]?.ToString();
                 var prescriptionDateFormatted = ExtractDate(prescriptionDate);
-                var ordercreateDate = reader["f_orderacceptdate"]?.ToString();
+                var ordercreateDate = reader["f_ordercreatedate"]?.ToString();
                 var ordertargetDate = reader["f_ordertargetdate"]?.ToString();
                 var orderacceptDate = reader["f_orderacceptdate"]?.ToString();
                 var patientdob = reader["f_patientdob"]?.ToString();
                 var itemlotExpire = reader["f_itemlotexpire"]?.ToString();
-                var ordercreateDateFormatted = ExtractDate2(ordercreateDate);
+                var ordercreateDateFormatted = ExtractDatenull(ordercreateDate);
                 var ordertargetDateFormatted = ExtractDate2(ordertargetDate);
-                var orderacceptDateFormatted = ExtractDate2(orderacceptDate);
+                var orderacceptDateFormatted = ExtractDatenull(orderacceptDate);
                 var patientdobFormatted = ExtractDate2(patientdob);
                 var itemlotExpireFormatted = ExtractDate2(itemlotExpire);
                 var sex = ProcessSex(reader["f_sex"]?.ToString());
@@ -75,7 +75,7 @@ namespace interface_Nonthavej.Services
                     f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : null,
                     f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : null,
                     f_prescriptiondate = ToNull(prescriptionDateFormatted),
-                    f_ordercreatedate = ToNull(ordercreateDateFormatted),
+                    f_ordercreatedate = ordercreateDateFormatted,
                     f_ordertargetdate = ToNull(ordertargetDateFormatted),
                     f_ordertargettime = DateTime.TryParse(reader["f_ordertargettime"]?.ToString(), out var dt)
                                         ? dt.ToString("HH:mm")
@@ -83,7 +83,7 @@ namespace interface_Nonthavej.Services
                     f_doctorcode = ToNull(reader["f_doctorcode"]?.ToString()),
                     f_doctorname = ToNull(reader["f_doctorname"]?.ToString()),
                     f_useracceptby = ToNull(reader["f_useracceptby"]?.ToString()),
-                    f_orderacceptdate = ToNull(orderacceptDateFormatted),
+                    f_orderacceptdate = orderacceptDateFormatted,
                     f_orderacceptfromip = ToNull(reader["f_orderacceptfromip"]?.ToString()),
                     f_pharmacylocationcode = ToNull(reader["f_pharmacylocationcode"]?.ToString()),
                     f_pharmacylocationdesc = ToNull(reader["f_pharmacylocationdesc"]?.ToString()),
@@ -645,7 +645,16 @@ namespace interface_Nonthavej.Services
 
             return "";
         }
+        public static string ExtractDatenull(string dateStr)
+        {
+            if (string.IsNullOrEmpty(dateStr))
+                return DateTime.Now.ToString("yyyy-MM-dd");
 
+            if (DateTime.TryParse(dateStr, out DateTime date))
+                return date.ToString("yyyy-MM-dd");
+
+            return "";
+        }
         private string ProcessSex(string sex)
         {
             if (string.IsNullOrEmpty(sex))
