@@ -144,7 +144,8 @@ namespace interface_Nonthavej.Services
                     f_labeltext = ToNull(reader["f_aux_label_memo"]?.ToString()),
                     f_ipdpt_record_no = ToNull(reader["f_ipdpt_record_no"]?.ToString()),
                     f_qr_code = ToNull(reader["f_QR_Code"]?.ToString()),
-                    f_barcode_ref = ToNull(reader["f_BarCodeRef"]?.ToString())
+                    f_barcode_ref = ToNull(reader["f_BarCodeRef"]?.ToString()),
+                    f_bagspecialdrug = ToNull(reader["f_bagspecialdrug"]?.ToString())
                 };
             }
             catch (Exception ex)

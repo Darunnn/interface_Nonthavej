@@ -81,6 +81,7 @@ namespace interface_Nonthavej.Models
         public string f_ipdpt_record_no { get; set; }
         public string f_qr_code { get; set; }
         public string f_barcode_ref { get; set; }
+        public string f_bagspecialdrug { get; set; }
     }
 
     public class PrescriptionBodyResponse
