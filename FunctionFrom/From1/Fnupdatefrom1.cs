@@ -293,8 +293,7 @@ using System.Windows.Forms;
                 }
 
                 startStopButton.Text = "⏹ Stop";
-                startStopButton.BackColor = Color.FromArgb(231, 76, 60);   // สีแดง
-                startStopButton.FlatAppearance.BorderColor = Color.FromArgb(192, 57, 43);
+                startStopButton.BackColor = Color.FromArgb(231, 76, 60);   // สีแดง               
                 UpdateStatus(statusLabel, "▶ Running - Waiting for data...");
             }
             catch (Exception ex)

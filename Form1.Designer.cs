@@ -120,7 +120,7 @@ namespace interface_Nonthavej
             // 
             // startStopButton
             // 
-            startStopButton.BackColor = Color.FromArgb(52, 152, 219);
+           
             startStopButton.FlatStyle = FlatStyle.Flat;
             startStopButton.Font = new Font("Tahoma", 9F, FontStyle.Bold);
             startStopButton.ForeColor = Color.White;

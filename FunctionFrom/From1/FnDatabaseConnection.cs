@@ -93,7 +93,7 @@ namespace interface_Nonthavej.FunctionFrom.From1
                 connectionStatusLabel.Text = $"Database: 🟢 Connected (Last Connected: {_lastConnectedTime:yyyy-MM-dd HH:mm:ss})";
                 connectionStatusLabel.ForeColor = Color.Green;
                 startStopButton.Enabled = true;
-                startStopButton.BackColor = Color.FromArgb(52, 152, 219);
+               
 
                 if (!isServiceRunning)
                 {
