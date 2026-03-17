@@ -28,6 +28,7 @@ namespace interface_Nonthavej
         // Service state
         private bool _isServiceRunning = false;
         private bool _wasServiceRunningBeforeDisconnect = false;
+        private bool _hasAutoStarted = false;
         private CancellationTokenSource _cancellationTokenSource;
 
         // Timers
@@ -378,82 +379,65 @@ namespace interface_Nonthavej
             {
                 this.Invoke((MethodInvoker)delegate
                 {
-                    if (isConnected)
-                    {
-                        _dbConnectionHelper.UpdateConnectedUI(
-                            connectionStatusLabel,
-                            startStopButton,
-                            _isServiceRunning,
-                            (status) => _uiHelper.UpdateStatus(statusLabel, status)
-                        );
-
-                        if (_wasServiceRunningBeforeDisconnect)
-                        {
-                            _logger?.LogInfo("🔄 Auto-restarting service after database reconnection");
-                            StartService();
-                            _wasServiceRunningBeforeDisconnect = false;
-                        }
-                    }
-                    else if (disconnectTime.HasValue)
-                    {
-                        if (_isServiceRunning)
-                        {
-                            _wasServiceRunningBeforeDisconnect = true;
-                            _logger?.LogInfo("⚠️ Service was running before disconnect - will auto-restart when reconnected");
-                            StopService();
-                        }
-                        else
-                        {
-                            _wasServiceRunningBeforeDisconnect = false;
-                        }
-
-                        _dbConnectionHelper.UpdateDisconnectedUI(
-                            connectionStatusLabel,
-                            startStopButton,
-                            disconnectTime.Value,
-                            (status) => _uiHelper.UpdateStatus(statusLabel, status)
-                        );
-                    }
+                    HandleConnectionState(isConnected, disconnectTime);
                 });
             }
             else
             {
-                if (isConnected)
-                {
-                    _dbConnectionHelper.UpdateConnectedUI(
-                        connectionStatusLabel,
-                        startStopButton,
-                        _isServiceRunning,
-                        (status) => _uiHelper.UpdateStatus(statusLabel, status)
-                    );
+                HandleConnectionState(isConnected, disconnectTime);
+            }
+        }
 
-                    if (_wasServiceRunningBeforeDisconnect)
-                    {
-                        _logger?.LogInfo("🔄 Auto-restarting service after database reconnection");
-                        StartService();
-                        _wasServiceRunningBeforeDisconnect = false;
-                    }
-                }
-                else if (disconnectTime.HasValue)
-                {
-                    if (_isServiceRunning)
-                    {
-                        _wasServiceRunningBeforeDisconnect = true;
-                        _logger?.LogInfo("⚠️ Service was running before disconnect - will auto-restart when reconnected");
-                        StopService();
-                    }
-                    else
-                    {
-                        _wasServiceRunningBeforeDisconnect = false;
-                    }
+        private void HandleConnectionState(bool isConnected, DateTime? disconnectTime)
+        {
+            if (isConnected)
+            {
+                _dbConnectionHelper.UpdateConnectedUI(
+                    connectionStatusLabel,
+                    startStopButton,
+                    _isServiceRunning,
+                    (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                );
 
-                    _dbConnectionHelper.UpdateDisconnectedUI(
-                        connectionStatusLabel,
-                        startStopButton,
-                        disconnectTime.Value,
-                        (status) => _uiHelper.UpdateStatus(statusLabel, status)
-                    );
+                // เปิดโปรแกรมครั้งแรก → auto-start
+                if (!_hasAutoStarted)
+                {
+                    _hasAutoStarted = true;
+                    _logger?.LogInfo("🚀 Auto-starting service on first connection");
+                    StartService();
+                    return;
                 }
+
+                // Reconnect หลัง disconnect → start เฉพาะถ้าก่อนหน้าทำงานอยู่
+                if (_wasServiceRunningBeforeDisconnect && !_isServiceRunning)
+                {
+                    _logger?.LogInfo("🔄 Reconnected — auto-restarting service");
+                    _wasServiceRunningBeforeDisconnect = false;
+                    StartService();
+                }
+            }
+            else if (disconnectTime.HasValue)
+            {
+                // ถ้ากำลังทำงานอยู่ → set flag แล้ว stop
+                if (_isServiceRunning)
+                {
+                    _wasServiceRunningBeforeDisconnect = true;
+                    _logger?.LogInfo($"⚠️ Disconnected while running — flag=true");
+                    StopService();
+                }
+                // ถ้าหยุดอยู่ AND ยังไม่เคย set flag (ป้องกัน timer ยิงซ้ำทับ)
+                else if (!_wasServiceRunningBeforeDisconnect)
+                {
+                    _wasServiceRunningBeforeDisconnect = false;
+                    _logger?.LogInfo($"⚠️ Disconnected while stopped — flag=false");
+                }
+
+                _dbConnectionHelper.UpdateDisconnectedUI(
+                    connectionStatusLabel,
+                    startStopButton,
+                    disconnectTime.Value,
+                    (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                );
             }
         }
 
@@ -501,10 +485,8 @@ namespace interface_Nonthavej
                 _isServiceRunning = true;
                 _cancellationTokenSource = new CancellationTokenSource();
 
-                this.Invoke((MethodInvoker)delegate
-                {
-                    _uiHelper.UpdateServiceRunningUI(startStopButton, statusLabel);
-                });
+                // ไม่ต้อง Invoke แล้ว เพราะ StartService() ถูกเรียกจาก UI thread เสมอ
+                _uiHelper.UpdateServiceRunningUI(startStopButton, statusLabel);
 
                 _logger.LogInfo("Service started");
                 Task.Run(() => ProcessDataLoop(_cancellationTokenSource.Token));
@@ -513,10 +495,7 @@ namespace interface_Nonthavej
             {
                 _logger?.LogError("Error starting service", ex);
                 _isServiceRunning = false;
-                this.Invoke((MethodInvoker)delegate
-                {
-                    _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
-                });
+                _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
             }
         }
 
@@ -531,10 +510,8 @@ namespace interface_Nonthavej
                     _cancellationTokenSource.Cancel();
                 }
 
-                this.Invoke((MethodInvoker)delegate
-                {
-                    _uiHelper.UpdateServiceStoppedUI(startStopButton, statusLabel);
-                });
+              
+                _uiHelper.UpdateServiceStoppedUI(startStopButton, statusLabel);
 
                 _logger.LogInfo("Service stopped");
             }
