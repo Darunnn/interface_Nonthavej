@@ -32,11 +32,16 @@ namespace interface_Nonthavej
 
         // Timers
         private System.Windows.Forms.Timer _connectionCheckTimer;
-
+        private System.Windows.Forms.Timer _dateChangeTimer;
+        private System.Windows.Forms.Timer _idleTimer;
         // Data management
         private DataTable _processedDataTable;
         private DataView _filteredDataView;
         private string _currentStatusFilter = "All";
+        private bool _isUserFiltering = false;
+        private bool _pendingDateRefresh = false;
+        private const int IDLE_SECONDS = 30;
+
 
         public Form1()
         {
@@ -93,7 +98,8 @@ namespace interface_Nonthavej
                 _connectionCheckTimer.Interval = 3000;
                 _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
                 _connectionCheckTimer.Start();
-
+                InitializeUserActivityTracking();
+                ScheduleMidnightRefresh();
                 _logger.LogInfo("Connection check timer started");
 
                 Task.Delay(500).ContinueWith(_ => CheckDatabaseConnection());
@@ -630,7 +636,9 @@ namespace interface_Nonthavej
             {
                 string selectedDate = DateHelper.ConvertToChristianEraFormatted(dateTimePicker.Value);
                 string searchText = searchTextBox.Text.Trim();
-
+                _isUserFiltering = false;
+                _pendingDateRefresh = false;
+                _idleTimer.Stop();
                 _logger?.LogInfo($"🔍 Search initiated - Date: {selectedDate}, Search: '{searchText}'");
 
                 _uiHelper.UpdateStatus(statusLabel, $"🔍 Searching for '{searchText}' on {selectedDate}...");
@@ -787,6 +795,10 @@ namespace interface_Nonthavej
 
                 _connectionCheckTimer?.Stop();
                 _connectionCheckTimer?.Dispose();
+                _dateChangeTimer?.Stop();
+                _dateChangeTimer?.Dispose();
+                _idleTimer?.Stop();
+                _idleTimer?.Dispose();
                 _cancellationTokenSource?.Dispose();
 
                 _logger?.LogInfo("Application closed successfully");
@@ -922,7 +934,134 @@ namespace interface_Nonthavej
         }
 
         #endregion
+        #region Date Change & Idle Detection
 
+        private void InitializeUserActivityTracking()
+        {
+            // Idle timer — ยิงเมื่อไม่มี activity ครบ 30 วินาที
+            _idleTimer = new System.Windows.Forms.Timer();
+            _idleTimer.Interval = IDLE_SECONDS * 1000;
+            _idleTimer.Tick += async (s, e) =>
+            {
+                _idleTimer.Stop();
+                if (_pendingDateRefresh)
+                {
+                    _pendingDateRefresh = false;
+                    _logger?.LogInfo("✅ User idle 30s — auto refreshing to today");
+                    await RefreshToToday();
+                }
+            };
+
+            // ดักจับ user activity บน Form
+            this.KeyPreview = true;
+            this.KeyDown += (s, e) => ResetIdleTimer();
+            this.MouseMove += (s, e) => ResetIdleTimer();
+            this.MouseClick += (s, e) => ResetIdleTimer();
+
+            // ดักจับ controls สำคัญ
+            searchTextBox.TextChanged += (s, e) => ResetIdleTimer();
+            dateTimePicker.ValueChanged += (s, e) =>
+            {
+                ResetIdleTimer();
+                _isUserFiltering = dateTimePicker.Value.Date != DateTime.Today;
+            };
+
+            _logger?.LogInfo("User activity tracking initialized");
+        }
+
+        private void ResetIdleTimer()
+        {
+            _idleTimer.Stop();
+            // เริ่มนับใหม่เฉพาะตอนที่มี pending refresh รออยู่
+            if (_pendingDateRefresh)
+            {
+                _idleTimer.Start();
+            }
+        }
+
+        private void ScheduleMidnightRefresh()
+        {
+            DateTime now = DateTime.Now;
+            DateTime midnight = now.Date.AddDays(1);
+            int msUntilMidnight = (int)(midnight - now).TotalMilliseconds;
+
+            _dateChangeTimer = new System.Windows.Forms.Timer();
+            _dateChangeTimer.Interval = msUntilMidnight;
+            _dateChangeTimer.Tick += MidnightTimer_Tick;
+            _dateChangeTimer.Start();
+
+            _logger?.LogInfo($"⏰ Midnight refresh scheduled in {msUntilMidnight / 1000}s");
+        }
+
+        private async void MidnightTimer_Tick(object sender, EventArgs e)
+        {
+            _dateChangeTimer.Stop();
+
+            _logger?.LogInfo("🕛 Midnight triggered");
+
+            // Update dateTimePicker ให้ตรงกับวันใหม่เสมอ ไม่ว่าจะ filter หรือเปล่า
+            if (this.InvokeRequired)
+            {
+                this.Invoke((MethodInvoker)delegate
+                {
+                    dateTimePicker.Value = DateTime.Now;
+                });
+            }
+            else
+            {
+                dateTimePicker.Value = DateTime.Now;
+            }
+
+            await HandleDateChange();
+
+            _dateChangeTimer.Interval = 24 * 60 * 60 * 1000;
+            _dateChangeTimer.Start();
+        }
+
+        private async Task HandleDateChange()
+        {
+            if (!_isUserFiltering)
+            {
+                // ไม่ได้ filter → refresh ทันที
+                _logger?.LogInfo("✅ Midnight auto refresh — not filtering");
+                await RefreshToToday();
+            }
+            else if ((DateTime.Now - DateTime.Today).TotalSeconds >= IDLE_SECONDS)
+            {
+                // filter อยู่ แต่ idle แล้ว → refresh ทันที
+                _logger?.LogInfo("✅ Midnight auto refresh — user is idle");
+                await RefreshToToday();
+            }
+            else
+            {
+                // filter อยู่ และกำลังใช้งาน → รอ idle timer ยิง
+                _logger?.LogInfo("⏳ Pending refresh — waiting for user to be idle 30s");
+                _pendingDateRefresh = true;
+                _idleTimer.Start();
+            }
+        }
+
+        private async Task RefreshToToday()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke((MethodInvoker)(async () => await RefreshToToday()));
+                return;
+            }
+
+            _isUserFiltering = false;
+            _pendingDateRefresh = false;
+            searchTextBox.Clear();
+            dateTimePicker.Value = DateTime.Now;
+            _currentStatusFilter = "All";
+
+            string newDate = DateHelper.ConvertToChristianEraFormatted(DateTime.Now);
+            await LoadDataGridViewAsync(newDate, "");
+
+            _logger?.LogInfo($"✅ Refreshed to today: {newDate}");
+        }
+
+        #endregion
 
     }
 }

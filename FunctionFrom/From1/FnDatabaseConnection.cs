@@ -100,7 +100,7 @@ namespace interface_Nonthavej.FunctionFrom.From1
                     updateStatusAction?.Invoke("⏹ Stopped - Ready to start");
                 }
 
-                _logger?.LogInfo($"UI updated - database connected at {_lastConnectedTime:yyyy-MM-dd HH:mm:ss}");
+                
             }
             catch (Exception ex)
             {
