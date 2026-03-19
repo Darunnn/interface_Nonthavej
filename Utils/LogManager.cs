@@ -55,11 +55,13 @@ namespace interface_Nonthavej.Utils
 
             {
                 
-                if (!File.Exists(_iniPath))
-                Directory.CreateDirectory(Path.GetDirectoryName(_iniPath));
-                File.WriteAllText(_iniPath, $"LogRetentionDays={defaultValue}");
-                LogToFile($"Config not found, created with default: {defaultValue} days", "DEBUG");
-                return defaultValue;
+                if (!File.Exists(_iniPath)) {
+                    Directory.CreateDirectory(Path.GetDirectoryName(_iniPath));
+                    File.WriteAllText(_iniPath, $"LogRetentionDays={defaultValue}");
+                    LogToFile($"Config not found, created with default: {defaultValue} days", "DEBUG");
+                    return defaultValue;
+                }
+               
 
                 foreach (var line in File.ReadAllLines(_iniPath))
                 {
