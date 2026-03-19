@@ -52,9 +52,14 @@ namespace interface_Nonthavej.Utils
         private int LoadLogRetentionDaysFromConfig(int defaultValue)
         {
             try
+
             {
+                
                 if (!File.Exists(_iniPath))
-                    return defaultValue;
+                Directory.CreateDirectory(Path.GetDirectoryName(_iniPath));
+                File.WriteAllText(_iniPath, $"LogRetentionDays={defaultValue}");
+                LogToFile($"Config not found, created with default: {defaultValue} days", "DEBUG");
+                return defaultValue;
 
                 foreach (var line in File.ReadAllLines(_iniPath))
                 {

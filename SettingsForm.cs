@@ -179,7 +179,7 @@ namespace interface_Nonthavej
                     "📁 ไฟล์ที่จะถูกแก้ไข:\n" +
                     "   • Connection\\connectdatabase.ini\n" +
                     "   • Config\\appsettings.ini\n" +
-                    "   • App.config\n\n" +
+                    "   • Config\\CleanOldLogs.ini\n\n" +
                     "⚠️ หมายเหตุ: การตั้งค่าบางอย่างอาจต้อง Restart โปรแกรม",
                     "Confirm Save",
                     MessageBoxButtons.YesNo,
@@ -199,7 +199,7 @@ namespace interface_Nonthavej
                     "ไฟล์ที่ถูกอัพเดท:\n" +
                     "✓ Connection\\connectdatabase.ini\n" +
                     "✓ Config\\appsettings.ini\n" +
-                    "✓ App.config\n\n" +
+                    "✓Config\\CleanOldLogs.ini\n\n" +
                     "💡 การตั้งค่าจะมีผลในครั้งถัดไปที่โปรแกรมโหลดข้อมูล",
                     "Success",
                     MessageBoxButtons.OK,
