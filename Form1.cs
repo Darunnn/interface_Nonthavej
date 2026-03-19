@@ -96,14 +96,8 @@ namespace interface_Nonthavej
                 _connectionCheckTimer.Start();
                 _logger.LogInfo("Connection check timer started");
 
-                // ── Date / Idle tracking — ส่ง callback เข้าไปใน _uiHelper ──
-                _uiHelper.InitializeUserActivityTracking(
-                    dateTimePicker,
-                    searchTextBox,
-                    (date, search) => LoadDataGridViewAsync(date, search),
-                    (status) => _uiHelper.UpdateStatus(statusLabel, status)
-                );
-                _uiHelper.ScheduleMidnightRefresh();
+              
+               
 
                 Task.Delay(500).ContinueWith(_ => CheckDatabaseConnection());
                 _ = LoadInitialDataAsync();
@@ -559,8 +553,7 @@ namespace interface_Nonthavej
                 _currentStatusFilter = "All";
                 _uiHelper.UpdateStatus(statusLabel, "🔄 Refreshing data...");
 
-                // ← delegate ไปที่ _uiHelper ซึ่งจะ reset searchTextBox, dateTimePicker และ load ข้อมูลวันนี้
-                await _uiHelper.RefreshToTodayAsync();
+             
 
                 _uiHelper.UpdateStatus(statusLabel, "✅ Data refreshed");
             }
@@ -688,8 +681,7 @@ namespace interface_Nonthavej
                 _connectionCheckTimer?.Dispose();
                 _cancellationTokenSource?.Dispose();
 
-                // Dispose timers ที่ย้ายไปอยู่ใน _uiHelper
-                _uiHelper?.DisposeTimers();
+               
 
                 _logger?.LogInfo("Application closed successfully");
             }
