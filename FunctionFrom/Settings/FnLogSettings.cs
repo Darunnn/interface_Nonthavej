@@ -1,52 +1,60 @@
-﻿using System.Configuration;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using interface_Nonthavej.Models;
 
 namespace interface_Nonthavej.FunctionFrom.Settings
 {
-    /// <summary>
-    /// จัดการการโหลดและบันทึกการตั้งค่า Log
-    /// </summary>
     public class FnLogSettings
     {
-        /// <summary>
-        /// โหลดการตั้งค่า Log จาก App.config
-        /// </summary>
+        private readonly string _iniPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "Config", "CleanOldLogs.ini");
+
         public LogSettings Load()
         {
-            var settings = new LogSettings();
+            var settings = new LogSettings(); // default = 30 days
 
-            var logDays = ConfigurationManager.AppSettings["LogRetentionDays"];
-            if (!string.IsNullOrEmpty(logDays) && int.TryParse(logDays, out int days))
+            if (!File.Exists(_iniPath))
+                return settings;
+
+            foreach (var line in File.ReadAllLines(_iniPath))
             {
-                settings.LogRetentionDays = days;
+                var parts = line.Split('=');
+                if (parts.Length == 2 &&
+                    parts[0].Trim().Equals("LogRetentionDays", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(parts[1].Trim(), out int days))
+                        settings.LogRetentionDays = days;
+                    break;
+                }
             }
 
             return settings;
         }
 
-        /// <summary>
-        /// บันทึกการตั้งค่า Log ลง App.config
-        /// </summary>
         public void Save(LogSettings settings)
         {
-            var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+            Directory.CreateDirectory(Path.GetDirectoryName(_iniPath));
 
-            if (config.AppSettings.Settings["LogRetentionDays"] == null)
+            var lines = File.Exists(_iniPath)
+                ? new List<string>(File.ReadAllLines(_iniPath))
+                : new List<string>();
+
+            bool found = false;
+            for (int i = 0; i < lines.Count; i++)
             {
-                config.AppSettings.Settings.Add("LogRetentionDays", settings.LogRetentionDays.ToString());
-            }
-            else
-            {
-                config.AppSettings.Settings["LogRetentionDays"].Value = settings.LogRetentionDays.ToString();
+                if (lines[i].TrimStart().StartsWith("LogRetentionDays", StringComparison.OrdinalIgnoreCase))
+                {
+                    lines[i] = $"LogRetentionDays={settings.LogRetentionDays}";
+                    found = true;
+                    break;
+                }
             }
 
-            config.Save(ConfigurationSaveMode.Modified);
-            ConfigurationManager.RefreshSection("appSettings");
+            if (!found)
+                lines.Add($"LogRetentionDays={settings.LogRetentionDays}");
+
+            File.WriteAllLines(_iniPath, lines);
         }
     }
-
-   
-    
 }
-
-

@@ -46,15 +46,25 @@ namespace interface_Nonthavej.Utils
             }
         }
 
+        private readonly string _iniPath = Path.Combine(
+     AppDomain.CurrentDomain.BaseDirectory, "Config", "CleanOldLogs.ini");
+
         private int LoadLogRetentionDaysFromConfig(int defaultValue)
         {
             try
             {
-                string configValue = ConfigurationManager.AppSettings["LogRetentionDays"];
+                if (!File.Exists(_iniPath))
+                    return defaultValue;
 
-                if (!string.IsNullOrEmpty(configValue) && int.TryParse(configValue, out int days))
+                foreach (var line in File.ReadAllLines(_iniPath))
                 {
-                    return days > 0 ? days : defaultValue;
+                    var parts = line.Split('=');
+                    if (parts.Length == 2 &&
+                        parts[0].Trim().Equals("LogRetentionDays", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(parts[1].Trim(), out int days))
+                            return days > 0 ? days : defaultValue;
+                    }
                 }
 
                 return defaultValue;
@@ -65,11 +75,11 @@ namespace interface_Nonthavej.Utils
             }
         }
 
+
         public void ReloadLogRetentionDays()
         {
             try
             {
-                ConfigurationManager.RefreshSection("appSettings");
                 _logRetentionDays = LoadLogRetentionDaysFromConfig(30);
                 LogInfo($"LogRetentionDays reloaded: {_logRetentionDays} days");
             }

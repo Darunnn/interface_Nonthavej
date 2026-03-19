@@ -30,7 +30,7 @@ namespace interface_Nonthavej
             // ⭐ เพิ่ม: สร้าง logger ก่อน
             _logger = new LogManager();
             _logger.LogInfo("=== Application Starting ===");
-
+            _logger.CleanOldLogs();
             // ⭐ เพิ่ม: Global Exception Handlers
             Application.ThreadException += Application_ThreadException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
