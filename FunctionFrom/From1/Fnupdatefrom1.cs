@@ -4,14 +4,28 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
- namespace interface_Nonthavej.FunctionFrom.From1
+namespace interface_Nonthavej.FunctionFrom.From1
 {
     public class Fnupdatefrom1
     {
         private readonly LogManager _logger;
         private readonly Form _parentForm;
+
+        private System.Windows.Forms.Timer _dateChangeTimer;
+        private System.Windows.Forms.Timer _idleTimer;
+        private bool _isUserFiltering = false;
+        private bool _pendingDateRefresh = false;
+        private bool _isInternalDateUpdate = false;          // ← fix midnight bug
+        private const int IDLE_SECONDS = 30;
+
+        // Callbacks ที่ Form1 ต้องให้มา
+        private DateTimePicker _dateTimePicker;
+        private TextBox _searchTextBox;
+        private Func<string, string, Task> _loadDataGridViewAsync; // (date, searchText)
+        private Action<string> _updateStatusAction;
 
         public Fnupdatefrom1(LogManager logger, Form parentForm = null)
         {
@@ -350,6 +364,158 @@ using System.Windows.Forms;
                 _logger?.LogError("Error updating last check labels", ex);
             }
         }
+        #region Date Change & Idle Detection
+
+        /// <summary>
+        /// เรียกครั้งเดียวใน Form1.InitializeApplication() หลัง controls พร้อมแล้ว
+        /// </summary>
+        public void InitializeUserActivityTracking(
+            DateTimePicker dateTimePicker,
+            TextBox searchTextBox,
+            Func<string, string, Task> loadDataGridViewAsync,
+            Action<string> updateStatusAction)
+        {
+            _dateTimePicker = dateTimePicker;
+            _searchTextBox = searchTextBox;
+            _loadDataGridViewAsync = loadDataGridViewAsync;
+            _updateStatusAction = updateStatusAction;
+
+            // Idle timer — ยิงเมื่อไม่มี activity ครบ IDLE_SECONDS วินาที
+            _idleTimer = new System.Windows.Forms.Timer();
+            _idleTimer.Interval = IDLE_SECONDS * 1000;
+            _idleTimer.Tick += async (s, e) =>
+            {
+                _idleTimer.Stop();
+                if (_pendingDateRefresh)
+                {
+                    _pendingDateRefresh = false;
+                    _logger?.LogInfo("✅ User idle 30s — auto refreshing to today");
+                    await RefreshToTodayAsync();
+                }
+            };
+
+            // ดักจับ user activity บน Form
+            _parentForm.KeyPreview = true;
+            _parentForm.KeyDown += (s, e) => ResetIdleTimer();
+            _parentForm.MouseMove += (s, e) => ResetIdleTimer();
+            _parentForm.MouseClick += (s, e) => ResetIdleTimer();
+
+            // ดักจับ controls สำคัญ
+            _searchTextBox.TextChanged += (s, e) => ResetIdleTimer();
+            _dateTimePicker.ValueChanged += (s, e) =>
+            {
+                if (_isInternalDateUpdate) return;          // ← guard: โปรแกรม set เอง
+                ResetIdleTimer();
+                _isUserFiltering = _dateTimePicker.Value.Date != DateTime.Today;
+            };
+
+            _logger?.LogInfo("User activity tracking initialized");
+        }
+
+        private void ResetIdleTimer()
+        {
+            _idleTimer.Stop();
+            if (_pendingDateRefresh)
+                _idleTimer.Start();
+        }
+
+        /// <summary>
+        /// เรียกครั้งเดียวใน Form1.InitializeApplication() เพื่อ schedule midnight refresh
+        /// </summary>
+        public void ScheduleMidnightRefresh()
+        {
+            DateTime now = DateTime.Now;
+            DateTime midnight = now.Date.AddDays(1);
+            int msUntilMidnight = (int)(midnight - now).TotalMilliseconds;
+
+            _dateChangeTimer = new System.Windows.Forms.Timer();
+            _dateChangeTimer.Interval = msUntilMidnight;
+            _dateChangeTimer.Tick += MidnightTimer_Tick;
+            _dateChangeTimer.Start();
+
+            _logger?.LogInfo($"⏰ Midnight refresh scheduled in {msUntilMidnight / 1000}s");
+        }
+
+        private async void MidnightTimer_Tick(object sender, EventArgs e)
+        {
+            _dateChangeTimer.Stop();
+            _logger?.LogInfo("🕛 Midnight triggered");
+
+            // set dateTimePicker โดยไม่ให้ ValueChanged เข้าใจว่า user filter
+            SetDatePickerInternal(DateTime.Now);
+
+            await HandleDateChangeAsync();
+
+            _dateChangeTimer.Interval = 24 * 60 * 60 * 1000;
+            _dateChangeTimer.Start();
+        }
+
+        private async Task HandleDateChangeAsync()
+        {
+            if (!_isUserFiltering)
+            {
+                _logger?.LogInfo("✅ Midnight auto refresh — not filtering");
+                await RefreshToTodayAsync();
+            }
+            else if ((DateTime.Now - DateTime.Today).TotalSeconds >= IDLE_SECONDS)
+            {
+                _logger?.LogInfo("✅ Midnight auto refresh — user is idle");
+                await RefreshToTodayAsync();
+            }
+            else
+            {
+                _logger?.LogInfo("⏳ Pending refresh — waiting for user to be idle 30s");
+                _pendingDateRefresh = true;
+                _idleTimer.Start();
+            }
+        }
+
+        /// <summary>
+        /// Refresh grid กลับมาวันนี้ และ reset filter ทั้งหมด
+        /// สามารถเรียกจาก Form1 ได้โดยตรง (RefreshButton_Click)
+        /// </summary>
+        public async Task RefreshToTodayAsync()
+        {
+            // ถ้าอยู่ background thread ให้ Invoke กลับ UI thread
+            if (_parentForm.InvokeRequired)
+            {
+                _parentForm.Invoke((MethodInvoker)(async () => await RefreshToTodayAsync()));
+                return;
+            }
+
+            _isUserFiltering = false;
+            _pendingDateRefresh = false;
+
+            _searchTextBox.Clear();
+            SetDatePickerInternal(DateTime.Now);
+
+            string newDate = DateHelper.ConvertToChristianEraFormatted(DateTime.Now);
+            await _loadDataGridViewAsync(newDate, "");
+
+            _logger?.LogInfo($"✅ Refreshed to today: {newDate}");
+        }
+
+        /// <summary>
+        /// Dispose timers — เรียกใน Form1.OnFormClosing()
+        /// </summary>
+        public void DisposeTimers()
+        {
+            _dateChangeTimer?.Stop();
+            _dateChangeTimer?.Dispose();
+            _idleTimer?.Stop();
+            _idleTimer?.Dispose();
+        }
+
+        // helper: set dateTimePicker โดยไม่ trigger _isUserFiltering
+        private void SetDatePickerInternal(DateTime value)
+        {
+            _isInternalDateUpdate = true;
+            _dateTimePicker.Value = value;
+            _isInternalDateUpdate = false;
+        }
+
+        #endregion
+
     }
 }
 

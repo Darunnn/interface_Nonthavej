@@ -20,6 +20,7 @@ namespace interface_Nonthavej
         private LogManager _logger;
         private DataService _dataService;
         private DataServicetest _dataServiceTest;
+
         // Helper classes
         private Fnupdatefrom1 _uiHelper;
         private FnExport _exportHelper;
@@ -33,15 +34,11 @@ namespace interface_Nonthavej
 
         // Timers
         private System.Windows.Forms.Timer _connectionCheckTimer;
-        private System.Windows.Forms.Timer _dateChangeTimer;
-        private System.Windows.Forms.Timer _idleTimer;
+
         // Data management
         private DataTable _processedDataTable;
         private DataView _filteredDataView;
         private string _currentStatusFilter = "All";
-        private bool _isUserFiltering = false;
-        private bool _pendingDateRefresh = false;
-        private const int IDLE_SECONDS = 30;
 
 
         public Form1()
@@ -71,7 +68,7 @@ namespace interface_Nonthavej
                 {
                     _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
                     _dataServiceTest = new DataServicetest(_appConfig.ConnectionString, _logger, _appConfig.MaxProcessingBatchSize);
-                    _logger.LogInfo($"DataService initialized");
+                    _logger.LogInfo("DataService initialized");
                 }
                 else
                 {
@@ -81,9 +78,7 @@ namespace interface_Nonthavej
                 }
 
                 if (_appConfig != null)
-                {
                     _logger.LogInfo(_appConfig.GetConfigurationSummary());
-                }
 
                 // Initialize helper classes
                 _uiHelper = new Fnupdatefrom1(_logger, this);
@@ -94,14 +89,21 @@ namespace interface_Nonthavej
                 InitializeDataTable();
                 _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
 
-                // Start connection check timer
+                // Connection check timer
                 _connectionCheckTimer = new System.Windows.Forms.Timer();
                 _connectionCheckTimer.Interval = 3000;
                 _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
                 _connectionCheckTimer.Start();
-                InitializeUserActivityTracking();
-                ScheduleMidnightRefresh();
                 _logger.LogInfo("Connection check timer started");
+
+                // ── Date / Idle tracking — ส่ง callback เข้าไปใน _uiHelper ──
+                _uiHelper.InitializeUserActivityTracking(
+                    dateTimePicker,
+                    searchTextBox,
+                    (date, search) => LoadDataGridViewAsync(date, search),
+                    (status) => _uiHelper.UpdateStatus(statusLabel, status)
+                );
+                _uiHelper.ScheduleMidnightRefresh();
 
                 Task.Delay(500).ContinueWith(_ => CheckDatabaseConnection());
                 _ = LoadInitialDataAsync();
@@ -159,36 +161,18 @@ namespace interface_Nonthavej
         {
             try
             {
-                // Attach click events to panels
                 totalPanel.Click += TotalPanel_Click;
                 successPanel.Click += SuccessPanel_Click;
                 failedPanel.Click += FailedPanel_Click;
 
-                // Set cursor for all labels inside panels
                 foreach (Control ctrl in totalPanel.Controls)
-                {
-                    if (ctrl is Label)
-                    {
-                        ctrl.Click += TotalPanel_Click;
-                        ctrl.Cursor = Cursors.Hand;
-                    }
-                }
+                    if (ctrl is Label) { ctrl.Click += TotalPanel_Click; ctrl.Cursor = Cursors.Hand; }
+
                 foreach (Control ctrl in successPanel.Controls)
-                {
-                    if (ctrl is Label)
-                    {
-                        ctrl.Click += SuccessPanel_Click;
-                        ctrl.Cursor = Cursors.Hand;
-                    }
-                }
+                    if (ctrl is Label) { ctrl.Click += SuccessPanel_Click; ctrl.Cursor = Cursors.Hand; }
+
                 foreach (Control ctrl in failedPanel.Controls)
-                {
-                    if (ctrl is Label)
-                    {
-                        ctrl.Click += FailedPanel_Click;
-                        ctrl.Cursor = Cursors.Hand;
-                    }
-                }
+                    if (ctrl is Label) { ctrl.Click += FailedPanel_Click; ctrl.Cursor = Cursors.Hand; }
 
                 totalPanel.Cursor = Cursors.Hand;
                 successPanel.Cursor = Cursors.Hand;
@@ -230,14 +214,9 @@ namespace interface_Nonthavej
             {
                 if (_filteredDataView == null) return;
 
-                if (_currentStatusFilter == "All")
-                {
-                    _filteredDataView.RowFilter = string.Empty;
-                }
-                else
-                {
-                    _filteredDataView.RowFilter = $"[Status] = '{_currentStatusFilter}'";
-                }
+                _filteredDataView.RowFilter = _currentStatusFilter == "All"
+                    ? string.Empty
+                    : $"[Status] = '{_currentStatusFilter}'";
 
                 _uiHelper.UpdateStatusFilterUI(totalPanel, successPanel, failedPanel, _currentStatusFilter);
                 _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
@@ -287,22 +266,9 @@ namespace interface_Nonthavej
                 }
 
                 if (this.InvokeRequired)
-                {
-                    this.Invoke((MethodInvoker)delegate
-                    {
-                        if (!_isServiceRunning)
-                        {
-                            _uiHelper.UpdateStatus(statusLabel, "⏳ Loading data...");
-                        }
-                    });
-                }
+                    this.Invoke((MethodInvoker)delegate { if (!_isServiceRunning) _uiHelper.UpdateStatus(statusLabel, "⏳ Loading data..."); });
                 else
-                {
-                    if (!_isServiceRunning)
-                    {
-                        _uiHelper.UpdateStatus(statusLabel, "⏳ Loading data...");
-                    }
-                }
+                    if (!_isServiceRunning) _uiHelper.UpdateStatus(statusLabel, "⏳ Loading data...");
 
                 var data = await _dataService.GetPrescriptionDataAsync(queryDate, searchText, CancellationToken.None);
 
@@ -310,56 +276,38 @@ namespace interface_Nonthavej
 
                 if (this.InvokeRequired)
                 {
-                    this.Invoke((MethodInvoker)delegate
-                    {
-                        _uiHelper.UpdateGridView(_processedDataTable, data, _isServiceRunning,
-                            (status) => _uiHelper.UpdateStatus(statusLabel, status));
-                        _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
-
-                        if (dataGridView.DataSource == null)
-                        {
-                            dataGridView.DataSource = _filteredDataView;
-                        }
-                        else
-                        {
-                            dataGridView.Refresh();
-                        }
-                    });
+                    this.Invoke((MethodInvoker)delegate { UpdateGridAndView(data); });
                 }
                 else
                 {
-                    _uiHelper.UpdateGridView(_processedDataTable, data, _isServiceRunning,
-                        (status) => _uiHelper.UpdateStatus(statusLabel, status));
-                    _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
-
-                    if (dataGridView.DataSource == null)
-                    {
-                        dataGridView.DataSource = _filteredDataView;
-                    }
-                    else
-                    {
-                        dataGridView.Refresh();
-                    }
+                    UpdateGridAndView(data);
                 }
             }
             catch (Exception ex)
             {
                 _logger?.LogError("❌ Error loading DataGridView", ex);
 
-                if (this.InvokeRequired)
-                {
-                    this.Invoke((MethodInvoker)delegate
-                    {
-                        _uiHelper.UpdateStatus(statusLabel, "❌ Error loading data");
-                        _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
-                    });
-                }
-                else
+                void showError()
                 {
                     _uiHelper.UpdateStatus(statusLabel, "❌ Error loading data");
                     _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาด: {ex.Message}", "ข้อผิดพลาด");
                 }
+
+                if (this.InvokeRequired) this.Invoke((MethodInvoker)showError);
+                else showError();
             }
+        }
+
+        private void UpdateGridAndView(List<GridViewDataModel> data)
+        {
+            _uiHelper.UpdateGridView(_processedDataTable, data, _isServiceRunning,
+                (status) => _uiHelper.UpdateStatus(statusLabel, status));
+            _uiHelper.UpdateSummaryCounts(_processedDataTable, totalCountLabel, successCountLabel, failedCountLabel);
+
+            if (dataGridView.DataSource == null)
+                dataGridView.DataSource = _filteredDataView;
+            else
+                dataGridView.Refresh();
         }
 
         #endregion
@@ -376,16 +324,9 @@ namespace interface_Nonthavej
             var (isConnected, disconnectTime) = _dbConnectionHelper.CheckConnection();
 
             if (this.InvokeRequired)
-            {
-                this.Invoke((MethodInvoker)delegate
-                {
-                    HandleConnectionState(isConnected, disconnectTime);
-                });
-            }
+                this.Invoke((MethodInvoker)delegate { HandleConnectionState(isConnected, disconnectTime); });
             else
-            {
                 HandleConnectionState(isConnected, disconnectTime);
-            }
         }
 
         private void HandleConnectionState(bool isConnected, DateTime? disconnectTime)
@@ -399,7 +340,6 @@ namespace interface_Nonthavej
                     (status) => _uiHelper.UpdateStatus(statusLabel, status)
                 );
 
-                // เปิดโปรแกรมครั้งแรก → auto-start
                 if (!_hasAutoStarted)
                 {
                     _hasAutoStarted = true;
@@ -408,7 +348,6 @@ namespace interface_Nonthavej
                     return;
                 }
 
-                // Reconnect หลัง disconnect → start เฉพาะถ้าก่อนหน้าทำงานอยู่
                 if (_wasServiceRunningBeforeDisconnect && !_isServiceRunning)
                 {
                     _logger?.LogInfo("🔄 Reconnected — auto-restarting service");
@@ -418,18 +357,16 @@ namespace interface_Nonthavej
             }
             else if (disconnectTime.HasValue)
             {
-                // ถ้ากำลังทำงานอยู่ → set flag แล้ว stop
                 if (_isServiceRunning)
                 {
                     _wasServiceRunningBeforeDisconnect = true;
-                    _logger?.LogInfo($"⚠️ Disconnected while running — flag=true");
+                    _logger?.LogInfo("⚠️ Disconnected while running — flag=true");
                     StopService();
                 }
-                // ถ้าหยุดอยู่ AND ยังไม่เคย set flag (ป้องกัน timer ยิงซ้ำทับ)
                 else if (!_wasServiceRunningBeforeDisconnect)
                 {
                     _wasServiceRunningBeforeDisconnect = false;
-                    _logger?.LogInfo($"⚠️ Disconnected while stopped — flag=false");
+                    _logger?.LogInfo("⚠️ Disconnected while stopped — flag=false");
                 }
 
                 _dbConnectionHelper.UpdateDisconnectedUI(
@@ -456,16 +393,8 @@ namespace interface_Nonthavej
                     return;
                 }
 
-                if (_isServiceRunning)
-                {
-                    _logger?.LogInfo("Stopping service");
-                    StopService();
-                }
-                else
-                {
-                    _logger?.LogInfo("Starting service");
-                    StartService();
-                }
+                if (_isServiceRunning) StopService();
+                else StartService();
             }
             catch (Exception ex)
             {
@@ -485,7 +414,6 @@ namespace interface_Nonthavej
                 _isServiceRunning = true;
                 _cancellationTokenSource = new CancellationTokenSource();
 
-                // ไม่ต้อง Invoke แล้ว เพราะ StartService() ถูกเรียกจาก UI thread เสมอ
                 _uiHelper.UpdateServiceRunningUI(startStopButton, statusLabel);
 
                 _logger.LogInfo("Service started");
@@ -506,11 +434,8 @@ namespace interface_Nonthavej
                 _isServiceRunning = false;
 
                 if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
-                {
                     _cancellationTokenSource.Cancel();
-                }
 
-              
                 _uiHelper.UpdateServiceStoppedUI(startStopButton, statusLabel);
 
                 _logger.LogInfo("Service stopped");
@@ -560,14 +485,11 @@ namespace interface_Nonthavej
                     });
 
                     foreach (var error in errors)
-                    {
                         _logger.LogWarning(error);
-                    }
 
                     _logger.LogInfo($"Loop #{loopCount} Complete: {successCount} success, {failedCount} failed");
 
                     int delaySeconds = _appConfig?.ProcessingIntervalSeconds ?? 15;
-
                     _logger.LogInfo($"⏳ Waiting {delaySeconds}s before next check...");
 
                     for (int i = delaySeconds; i > 0; i--)
@@ -613,11 +535,8 @@ namespace interface_Nonthavej
             {
                 string selectedDate = DateHelper.ConvertToChristianEraFormatted(dateTimePicker.Value);
                 string searchText = searchTextBox.Text.Trim();
-                _isUserFiltering = false;
-                _pendingDateRefresh = false;
-                _idleTimer.Stop();
-                _logger?.LogInfo($"🔍 Search initiated - Date: {selectedDate}, Search: '{searchText}'");
 
+                _logger?.LogInfo($"🔍 Search initiated - Date: {selectedDate}, Search: '{searchText}'");
                 _uiHelper.UpdateStatus(statusLabel, $"🔍 Searching for '{searchText}' on {selectedDate}...");
 
                 await LoadDataGridViewAsync(selectedDate, searchText);
@@ -637,19 +556,13 @@ namespace interface_Nonthavej
             try
             {
                 _logger?.LogInfo("Refresh button clicked");
-
                 _currentStatusFilter = "All";
-                searchTextBox.Clear();
-                dateTimePicker.Value = DateTime.Now;
-
                 _uiHelper.UpdateStatus(statusLabel, "🔄 Refreshing data...");
 
-                string currentDate = DateHelper.ConvertToChristianEraFormatted(DateTime.Now);
-                await LoadDataGridViewAsync(currentDate, "");
+                // ← delegate ไปที่ _uiHelper ซึ่งจะ reset searchTextBox, dateTimePicker และ load ข้อมูลวันนี้
+                await _uiHelper.RefreshToTodayAsync();
 
                 _uiHelper.UpdateStatus(statusLabel, "✅ Data refreshed");
-
-                _logger?.LogInfo($"Data refreshed - Reset to current date: {currentDate}");
             }
             catch (Exception ex)
             {
@@ -759,6 +672,7 @@ namespace interface_Nonthavej
                     return;
                 }
             }
+
             try
             {
                 _logger?.LogInfo("=== Application Closing ===");
@@ -772,11 +686,10 @@ namespace interface_Nonthavej
 
                 _connectionCheckTimer?.Stop();
                 _connectionCheckTimer?.Dispose();
-                _dateChangeTimer?.Stop();
-                _dateChangeTimer?.Dispose();
-                _idleTimer?.Stop();
-                _idleTimer?.Dispose();
                 _cancellationTokenSource?.Dispose();
+
+                // Dispose timers ที่ย้ายไปอยู่ใน _uiHelper
+                _uiHelper?.DisposeTimers();
 
                 _logger?.LogInfo("Application closed successfully");
             }
@@ -792,6 +705,7 @@ namespace interface_Nonthavej
         }
 
         #endregion
+
         #region Test Button Handler
 
         private async void button1_Click(object sender, EventArgs e)
@@ -800,7 +714,6 @@ namespace interface_Nonthavej
             {
                 _logger?.LogInfo("🧪 Test button clicked - Starting JSON export test");
 
-                // แสดง confirmation dialog
                 var confirmResult = MessageBox.Show(
                     "คุณต้องการดึงข้อมูล 10 รายการแรกและ Export เป็น JSON หรือไม่?",
                     "ยืนยันการทดสอบ",
@@ -814,12 +727,8 @@ namespace interface_Nonthavej
                     return;
                 }
 
-                // แสดงสถานะกำลังประมวลผล
                 _uiHelper.UpdateStatus(statusLabel, "🧪 Testing - Processing data...");
 
-              
-
-                // เรียกใช้งาน DataServicetest
                 if (_dataServiceTest == null)
                 {
                     _logger?.LogError("DataServicetest not initialized");
@@ -829,7 +738,6 @@ namespace interface_Nonthavej
 
                 var (successCount, failedCount, errors, jsonFilePath) = await _dataServiceTest.ProcessAndExportToJsonAsync();
 
-                // แสดงผลลัพธ์
                 if (!string.IsNullOrEmpty(jsonFilePath))
                 {
                     _logger?.LogInfo($"✅ Test completed successfully");
@@ -838,17 +746,12 @@ namespace interface_Nonthavej
 
                     string fileInfo = "";
                     if (File.Exists(jsonFilePath))
-                    {
-                        var fileSize = new FileInfo(jsonFilePath).Length;
-                        fileInfo = $"\nขนาดไฟล์: {fileSize / 1024.0:F2} KB";
-                    }
+                        fileInfo = $"\nขนาดไฟล์: {new FileInfo(jsonFilePath).Length / 1024.0:F2} KB";
 
                     _uiHelper.ShowAutoClosingMessageBox(
                         this,
-                        $"✅ ทดสอบสำเร็จ!\n\n" +
-                        $"จำนวนข้อมูล: {successCount} รายการ\n" +
-                        $"ข้อมูลที่ล้มเหลว: {failedCount} รายการ" +
-                        fileInfo + "\n\n" +
+                        $"✅ ทดสอบสำเร็จ!\n\nจำนวนข้อมูล: {successCount} รายการ\n" +
+                        $"ข้อมูลที่ล้มเหลว: {failedCount} รายการ{fileInfo}\n\n" +
                         $"ไฟล์ถูกบันทึกที่:\n{jsonFilePath}",
                         "ผลการทดสอบ",
                         5000
@@ -856,7 +759,6 @@ namespace interface_Nonthavej
 
                     _uiHelper.UpdateStatus(statusLabel, $"✅ Test completed - {successCount} records exported");
 
-                    // เปิดโฟลเดอร์ที่บันทึกไฟล์
                     if (File.Exists(jsonFilePath))
                     {
                         var openFolderResult = MessageBox.Show(
@@ -867,10 +769,7 @@ namespace interface_Nonthavej
                         );
 
                         if (openFolderResult == DialogResult.Yes)
-                        {
-                            string folderPath = Path.GetDirectoryName(jsonFilePath);
-                            System.Diagnostics.Process.Start("explorer.exe", folderPath);
-                        }
+                            System.Diagnostics.Process.Start("explorer.exe", Path.GetDirectoryName(jsonFilePath));
                     }
                 }
                 else
@@ -879,166 +778,20 @@ namespace interface_Nonthavej
 
                     string errorMessage = "❌ การทดสอบล้มเหลว\n\n";
                     if (errors.Count > 0)
-                    {
                         errorMessage += "ข้อผิดพลาด:\n" + string.Join("\n", errors);
-                    }
 
-                    _uiHelper.ShowAutoClosingMessageBox(
-                        this,
-                        errorMessage,
-                        "ข้อผิดพลาด"
-                    );
-
+                    _uiHelper.ShowAutoClosingMessageBox(this, errorMessage, "ข้อผิดพลาด");
                     _uiHelper.UpdateStatus(statusLabel, "❌ Test failed");
                 }
-
-                // Re-enable ปุ่ม
-                // testButton.Enabled = true; // uncomment this
             }
             catch (Exception ex)
             {
                 _logger?.LogError("❌ Error in TestButton_Click", ex);
                 _uiHelper.UpdateStatus(statusLabel, "❌ Test error");
-                _uiHelper.ShowAutoClosingMessageBox(
-                    this,
-                    $"ข้อผิดพลาดในการทดสอบ:\n{ex.Message}",
-                    "ข้อผิดพลาด"
-                );
-
-                // Re-enable ปุ่ม
-                // testButton.Enabled = true; // uncomment this
+                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาดในการทดสอบ:\n{ex.Message}", "ข้อผิดพลาด");
             }
         }
 
         #endregion
-        #region Date Change & Idle Detection
-
-        private void InitializeUserActivityTracking()
-        {
-            // Idle timer — ยิงเมื่อไม่มี activity ครบ 30 วินาที
-            _idleTimer = new System.Windows.Forms.Timer();
-            _idleTimer.Interval = IDLE_SECONDS * 1000;
-            _idleTimer.Tick += async (s, e) =>
-            {
-                _idleTimer.Stop();
-                if (_pendingDateRefresh)
-                {
-                    _pendingDateRefresh = false;
-                    _logger?.LogInfo("✅ User idle 30s — auto refreshing to today");
-                    await RefreshToToday();
-                }
-            };
-
-            // ดักจับ user activity บน Form
-            this.KeyPreview = true;
-            this.KeyDown += (s, e) => ResetIdleTimer();
-            this.MouseMove += (s, e) => ResetIdleTimer();
-            this.MouseClick += (s, e) => ResetIdleTimer();
-
-            // ดักจับ controls สำคัญ
-            searchTextBox.TextChanged += (s, e) => ResetIdleTimer();
-            dateTimePicker.ValueChanged += (s, e) =>
-            {
-                ResetIdleTimer();
-                _isUserFiltering = dateTimePicker.Value.Date != DateTime.Today;
-            };
-
-            _logger?.LogInfo("User activity tracking initialized");
-        }
-
-        private void ResetIdleTimer()
-        {
-            _idleTimer.Stop();
-            // เริ่มนับใหม่เฉพาะตอนที่มี pending refresh รออยู่
-            if (_pendingDateRefresh)
-            {
-                _idleTimer.Start();
-            }
-        }
-
-        private void ScheduleMidnightRefresh()
-        {
-            DateTime now = DateTime.Now;
-            DateTime midnight = now.Date.AddDays(1);
-            int msUntilMidnight = (int)(midnight - now).TotalMilliseconds;
-
-            _dateChangeTimer = new System.Windows.Forms.Timer();
-            _dateChangeTimer.Interval = msUntilMidnight;
-            _dateChangeTimer.Tick += MidnightTimer_Tick;
-            _dateChangeTimer.Start();
-
-            _logger?.LogInfo($"⏰ Midnight refresh scheduled in {msUntilMidnight / 1000}s");
-        }
-
-        private async void MidnightTimer_Tick(object sender, EventArgs e)
-        {
-            _dateChangeTimer.Stop();
-
-            _logger?.LogInfo("🕛 Midnight triggered");
-
-            // Update dateTimePicker ให้ตรงกับวันใหม่เสมอ ไม่ว่าจะ filter หรือเปล่า
-            if (this.InvokeRequired)
-            {
-                this.Invoke((MethodInvoker)delegate
-                {
-                    dateTimePicker.Value = DateTime.Now;
-                });
-            }
-            else
-            {
-                dateTimePicker.Value = DateTime.Now;
-            }
-
-            await HandleDateChange();
-
-            _dateChangeTimer.Interval = 24 * 60 * 60 * 1000;
-            _dateChangeTimer.Start();
-        }
-
-        private async Task HandleDateChange()
-        {
-            if (!_isUserFiltering)
-            {
-                // ไม่ได้ filter → refresh ทันที
-                _logger?.LogInfo("✅ Midnight auto refresh — not filtering");
-                await RefreshToToday();
-            }
-            else if ((DateTime.Now - DateTime.Today).TotalSeconds >= IDLE_SECONDS)
-            {
-                // filter อยู่ แต่ idle แล้ว → refresh ทันที
-                _logger?.LogInfo("✅ Midnight auto refresh — user is idle");
-                await RefreshToToday();
-            }
-            else
-            {
-                // filter อยู่ และกำลังใช้งาน → รอ idle timer ยิง
-                _logger?.LogInfo("⏳ Pending refresh — waiting for user to be idle 30s");
-                _pendingDateRefresh = true;
-                _idleTimer.Start();
-            }
-        }
-
-        private async Task RefreshToToday()
-        {
-            if (this.InvokeRequired)
-            {
-                this.Invoke((MethodInvoker)(async () => await RefreshToToday()));
-                return;
-            }
-
-            _isUserFiltering = false;
-            _pendingDateRefresh = false;
-            searchTextBox.Clear();
-            dateTimePicker.Value = DateTime.Now;
-            _currentStatusFilter = "All";
-
-            string newDate = DateHelper.ConvertToChristianEraFormatted(DateTime.Now);
-            await LoadDataGridViewAsync(newDate, "");
-
-            _logger?.LogInfo($"✅ Refreshed to today: {newDate}");
-        }
-
-        #endregion
-
     }
 }
