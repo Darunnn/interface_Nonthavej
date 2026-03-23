@@ -48,7 +48,7 @@ namespace interface_Nonthavej.Models
         public decimal? f_orderqty { get; set; }
         public string f_orderunitcode { get; set; }
         public string f_orderunitdesc { get; set; }
-        public decimal? f_dosage { get; set; }
+        public string f_dosage { get; set; }
         public string f_dosageunit { get; set; }
         public string f_dosagetext { get; set; }
         public string f_drugformcode { get; set; }
