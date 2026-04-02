@@ -221,6 +221,7 @@ namespace interface_Nonthavej.Services
                     {
                         var batchList = new List<PrescriptionBodyRequest>();
                         var batchPrescriptionInfo = new List<(string seq, string prescriptionNo, string prescriptionDate)>();
+                        var skipApiBatchInfo = new List<(string seq, string prescriptionNo, string prescriptionDate)>();
 
                         while (await reader.ReadAsync(cancellationToken))
                         {
@@ -239,6 +240,22 @@ namespace interface_Nonthavej.Services
                                 {
                                     failedCount++;
                                     continue;
+                                }
+
+                                // ถ้า prescriptionNo ขึ้นต้นด้วย R หรือ r → ไม่ส่ง API แต่อัพเดต status "1"
+                                if (prescriptionNo.StartsWith("R", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _logger?.LogInfo($"⏭️ Skip API (R-prefix) - Rx: {prescriptionNo}, Seq: {seq}");
+                                    skipApiBatchInfo.Add((seq, prescriptionNo, prescriptionDateFormatted));
+                                    successCount++;
+
+                                    if (skipApiBatchInfo.Count >= _batchSize)
+                                    {
+                                        await UpdateBatchStatusAsync(skipApiBatchInfo, "1", cancellationToken);
+                                        skipApiBatchInfo.Clear();
+                                    }
+
+                                    continue; 
                                 }
 
                                 var prescriptionBody = BuildPrescriptionBody(reader);
@@ -266,6 +283,13 @@ namespace interface_Nonthavej.Services
                                     await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDateFormatted, "3", cancellationToken);
                                 }
                             }
+                        }
+
+                        
+                        if (skipApiBatchInfo.Count > 0)
+                        {
+                            _logger?.LogInfo($"⏭️ Updating {skipApiBatchInfo.Count} R-prefix records (no API call)");
+                            await UpdateBatchStatusAsync(skipApiBatchInfo, "1", cancellationToken);
                         }
 
                         if (batchList.Count > 0)
