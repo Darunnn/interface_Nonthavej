@@ -121,6 +121,7 @@ namespace interface_Nonthavej
                 _processedDataTable.Columns.Add("HN", typeof(string));
                 _processedDataTable.Columns.Add("Patient Name", typeof(string));
                 _processedDataTable.Columns.Add("Status", typeof(string));
+                _processedDataTable.Columns.Add("Last Modified", typeof(string));
 
                 _filteredDataView = new DataView(_processedDataTable);
 
@@ -133,6 +134,7 @@ namespace interface_Nonthavej
                     dataGridView.Columns["HN"].Width = 90;
                     dataGridView.Columns["Patient Name"].Width = 180;
                     dataGridView.Columns["Status"].Width = 100;
+                    dataGridView.Columns["Last Modified"].Width = 165;
 
                     dataGridView.CellFormatting += DataGridView_CellFormatting;
                 }

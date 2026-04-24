@@ -129,7 +129,7 @@ namespace interface_Nonthavej.Services.test
                     f_dayofweek = null,
                     f_noteprocessing = ToNull(reader["f_freetext1"]?.ToString()),
                     f_prn = ToNull(prn),
-                    f_stat = ToNull(reader["f_freetext1"]?.ToString()),
+                    f_stat = ToNull(prn),
                     f_comment = ToNull(reader["f_comment"]?.ToString()),
                     f_tomachineno = ToNull(reader["f_tomachineno"]?.ToString()),
                     f_ipd_order_recordno = null,

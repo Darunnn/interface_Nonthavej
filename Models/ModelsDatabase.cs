@@ -103,5 +103,6 @@ namespace interface_Nonthavej.Models
         public string Dosage { get; set; }
         public string Status { get; set; }
         public string Remark { get; set; }
+        public string Lastmodified { get; set; }
     }
 }

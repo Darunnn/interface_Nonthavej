@@ -200,7 +200,7 @@ namespace interface_Nonthavej.Services
                    [f_ordertype],[f_aux_label_memo],[f_aux_local_memo],[f_BarCodeRef]
                 FROM tb_thaneshosp_middle
                 WHERE f_dispensestatus='0' 
-                  AND CONVERT(varchar(10), f_prescriptionnodate, 112) = @CurrentDate
+                  AND CONVERT(varchar(10), f_lastmodified, 112) = @CurrentDate
                 ORDER BY f_orderacceptdate";
 
             SqlConnection connection = null;
@@ -401,14 +401,14 @@ namespace interface_Nonthavej.Services
                                 SET f_dispensestatus = @Status  
                                 WHERE f_seq = @Seq
                                   AND f_prescriptionno = @PrescriptionNo 
-                                  AND Convert(varchar(10), f_prescriptionnodate, 112) = @PrescriptionDate";
+                                  AND Convert(varchar(10), f_lastmodified, 112) = @Lastmodified";
 
                             using (var command = new SqlCommand(updateQuery, connection, transaction))
                             {
                                 command.Parameters.AddWithValue("@Status", status);
                                 command.Parameters.AddWithValue("@Seq", seq);
                                 command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                                command.Parameters.AddWithValue("@PrescriptionDate", prescriptionDate);
+                                command.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
                                 command.CommandTimeout = 30;
 
                                 await command.ExecuteNonQueryAsync(cancellationToken);
@@ -449,7 +449,7 @@ namespace interface_Nonthavej.Services
                 SET f_dispensestatus = @Status
                 WHERE f_seq = @Seq
                   AND f_prescriptionno = @PrescriptionNo 
-                  AND Convert(varchar(10), f_prescriptionnodate, 112) = @PrescriptionDate";
+                  AND Convert(varchar(10), f_lastmodified, 112) = @Lastmodified";
 
             SqlConnection connection = null;
 
@@ -462,7 +462,7 @@ namespace interface_Nonthavej.Services
                     command.Parameters.AddWithValue("@Status", status);
                     command.Parameters.AddWithValue("@Seq", seq);
                     command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                    command.Parameters.AddWithValue("@PrescriptionDate", prescriptionDate);
+                    command.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
                     command.CommandTimeout = 10;
 
                     int affected = await command.ExecuteNonQueryAsync(cancellationToken);
@@ -498,9 +498,9 @@ namespace interface_Nonthavej.Services
                 SELECT 
                     f_prescriptionno, f_seq, f_seqmax, f_prescriptionnodate,
                     f_patientname, f_hn, f_orderitemname, f_orderqty,
-                    f_orderunitdesc, f_dosagedispense, f_dispensestatus
+                    f_orderunitdesc, f_dosagedispense, f_dispensestatus ,f_lastmodified
                 FROM tb_thaneshosp_middle
-                WHERE CONVERT(varchar(10), f_prescriptionnodate, 112) = @QueryDate
+                WHERE CONVERT(varchar(10), f_lastmodified, 112) = @QueryDate
                   AND f_dispensestatus IN ('1', '3')";
 
             if (hasSearchText)
@@ -544,6 +544,7 @@ namespace interface_Nonthavej.Services
                                     OrderUnit = reader["f_orderunitdesc"]?.ToString() ?? "",
                                     Dosage = reader["f_dosagedispense"]?.ToString() ?? "",
                                     Status = reader["f_dispensestatus"]?.ToString() ?? "",
+                                    Lastmodified = reader["f_lastmodified"]?.ToString() ?? "",
                                 };
 
                                 dataList.Add(item);
@@ -583,7 +584,7 @@ namespace interface_Nonthavej.Services
             string query = @"
                 SELECT * FROM tb_thaneshosp_middle
                 WHERE f_prescriptionno = @PrescriptionNo
-                  AND CONVERT(varchar(10), f_prescriptionnodate, 112) = @PrescriptionDate
+                  AND CONVERT(varchar(10), f_lastmodified, 112) = @Lastmodified
                 ORDER BY f_seq";
 
             foreach (var (prescriptionNo, prescriptionDate) in prescriptions)
@@ -597,7 +598,7 @@ namespace interface_Nonthavej.Services
                     using (var command = new SqlCommand(query, connection))
                     {
                         command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                        command.Parameters.AddWithValue("@PrescriptionDate", prescriptionDate);
+                        command.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
                         command.CommandTimeout = 30;
 
                         using (var reader = await command.ExecuteReaderAsync(cancellationToken))

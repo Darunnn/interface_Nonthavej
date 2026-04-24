@@ -198,13 +198,15 @@ namespace interface_Nonthavej.FunctionFrom.From1
                         string displayStatus = item.Status == "1" ? "Success" :
                                               (item.Status == "3" ? "Failed" : "Pending");
                         string formattedPrescriptionDate = DateTime.Parse(item.Prescriptiondate).ToString("dd/MM/yyyy HH:mm:ss");
-
+                        string formattedLastModified = DateTime.Parse(item.Lastmodified).ToString("dd/MM/yyyy HH:mm:ss");
+                       
                         dataTable.Rows.Add(
                             formattedPrescriptionDate,
                             item.PrescriptionNo,
                             item.HN,
                             item.PatientName,
-                            displayStatus
+                            displayStatus,
+                            formattedLastModified
                         );
 
                         addedCount++;
