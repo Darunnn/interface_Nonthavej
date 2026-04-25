@@ -51,7 +51,7 @@ namespace interface_Nonthavej.Services
             try
             {
                 var seq = reader["f_seq"]?.ToString();
-                var prescriptionDate = reader["f_prescriptionnodate"]?.ToString();
+                var prescriptionDate = reader["f_lastmodified"]?.ToString();
                 var prescriptionDateFormatted = ExtractDate(prescriptionDate);
                 var ordercreateDate = reader["f_ordercreatedate"]?.ToString();
                 var ordertargetDate = reader["f_ordertargetdate"]?.ToString();
@@ -233,7 +233,7 @@ namespace interface_Nonthavej.Services
                             {
                                 seq = reader["f_seq"]?.ToString();
                                 prescriptionNo = reader["f_prescriptionno"]?.ToString();
-                                var prescriptionDate = reader["f_prescriptionnodate"]?.ToString();
+                                var prescriptionDate = reader["f_lastmodified"]?.ToString();
                                 prescriptionDateFormatted = ExtractDate(prescriptionDate);
 
                                 if (string.IsNullOrEmpty(prescriptionNo))

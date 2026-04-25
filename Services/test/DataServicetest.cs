@@ -45,7 +45,7 @@ namespace interface_Nonthavej.Services.test
             try
             {
                 var seq = reader["f_seq"]?.ToString();
-                var prescriptionDate = reader["f_prescriptionnodate"]?.ToString();
+                var prescriptionDate = reader["f_lastmodified"]?.ToString();
                 var prescriptionDateFormatted = ExtractDate(prescriptionDate);
                 var ordercreateDate = reader["f_ordercreatedate"]?.ToString();
                 var ordertargetDate = reader["f_ordertargetdate"]?.ToString();
