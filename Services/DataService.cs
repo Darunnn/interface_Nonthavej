@@ -66,7 +66,7 @@ namespace interface_Nonthavej.Services
                 var sex = ProcessSex(reader["f_sex"]?.ToString());
                 var prnValue = reader["f_PRN"]?.ToString();
                 var prn = ProcessPRN(prnValue, 1);
-               
+                var stat = ProcessPRN(prnValue, 2);
 
                 return new PrescriptionBodyRequest
                 {
@@ -135,7 +135,7 @@ namespace interface_Nonthavej.Services
                     f_dayofweek = null,
                     f_noteprocessing = ToNull(reader["f_freetext1"]?.ToString()),
                     f_prn = ToNull(prn),
-                    f_stat = ToNull(prn),
+                    f_stat = ToNull(stat),
                     f_comment = ToNull(reader["f_comment"]?.ToString()),
                     f_tomachineno = ToNull(reader["f_tomachineno"]?.ToString()),
                     f_ipd_order_recordno = null,
