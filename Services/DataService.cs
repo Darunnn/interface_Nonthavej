@@ -38,9 +38,7 @@ namespace interface_Nonthavej.Services
             string apiUrl,
             LogManager logger = null,
             int batchSize = 10,
-            int apiTimeoutSeconds = 30,
-            int apiRetryAttempts = 3,
-            int apiRetryDelaySeconds = 5)
+            int apiTimeoutSeconds = 30)
         {
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _apiUrl = apiUrl;
@@ -232,8 +230,6 @@ namespace interface_Nonthavej.Services
 
                     using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        var batchList = new List<PrescriptionBodyRequest>();
-                        var batchPrescriptionInfo = new List<(string seq, string prescriptionNo, string prescriptionDate)>();
                         var skipApiBatchInfo = new List<(string seq, string prescriptionNo, string prescriptionDate)>();
 
                         while (await reader.ReadAsync(cancellationToken))
@@ -255,6 +251,7 @@ namespace interface_Nonthavej.Services
                                     continue;
                                 }
 
+                                // R-prefix: ข้าม API อัพ status 1 เลย
                                 if (prescriptionNo.StartsWith("R", StringComparison.OrdinalIgnoreCase))
                                 {
                                     _logger?.LogInfo($"⏭️ Skip API (R-prefix) - Rx: {prescriptionNo}, Seq: {seq}");
@@ -266,24 +263,15 @@ namespace interface_Nonthavej.Services
                                         await UpdateBatchStatusAsync(skipApiBatchInfo, "1", cancellationToken);
                                         skipApiBatchInfo.Clear();
                                     }
-
                                     continue;
                                 }
 
+                                // ส่ง API ทีละ record
                                 var prescriptionBody = BuildPrescriptionBody(reader);
-                                batchList.Add(prescriptionBody);
-                                batchPrescriptionInfo.Add((seq, prescriptionNo, prescriptionDateFormatted));
+                                bool sent = await SendSingleToApiAsync(prescriptionBody, seq, prescriptionNo, prescriptionDateFormatted, cancellationToken);
 
-                                if (batchList.Count >= _batchSize)
-                                {
-                                    _logger?.LogInfo($"📦 Sending batch ({batchList.Count} items)");
-                                    var (batchSuccess, batchFailed) = await SendBatchToApiAsync(batchList, batchPrescriptionInfo, cancellationToken);
-                                    successCount += batchSuccess;
-                                    failedCount += batchFailed;
-
-                                    batchList.Clear();
-                                    batchPrescriptionInfo.Clear();
-                                }
+                                if (sent) successCount++;
+                                else failedCount++;
                             }
                             catch (Exception ex)
                             {
@@ -297,18 +285,11 @@ namespace interface_Nonthavej.Services
                             }
                         }
 
+                        // flush R-prefix ที่เหลือ
                         if (skipApiBatchInfo.Count > 0)
                         {
                             _logger?.LogInfo($"⏭️ Updating {skipApiBatchInfo.Count} R-prefix records (no API call)");
                             await UpdateBatchStatusAsync(skipApiBatchInfo, "1", cancellationToken);
-                        }
-
-                        if (batchList.Count > 0)
-                        {
-                            _logger?.LogInfo($"📦 Sending final batch ({batchList.Count} items)");
-                            var (batchSuccess, batchFailed) = await SendBatchToApiAsync(batchList, batchPrescriptionInfo, cancellationToken);
-                            successCount += batchSuccess;
-                            failedCount += batchFailed;
                         }
                     }
                 }
@@ -331,23 +312,27 @@ namespace interface_Nonthavej.Services
             finally
             {
                 if (connection != null)
-                {
                     _connectionPool.ReleaseConnection(connection);
-                }
             }
 
             return (successCount, failedCount, errors);
         }
 
-        private async Task<(int success, int failed)> SendBatchToApiAsync(
-        List<PrescriptionBodyRequest> batchList,
-        List<(string seq, string prescriptionNo, string prescriptionDate)> batchInfo,
-        CancellationToken cancellationToken = default)
+        /// <summary>
+        /// ส่ง API ทีละ 1 record — ไม่ผ่านอัพ status 3 ทันที
+        /// </summary>
+        private async Task<bool> SendSingleToApiAsync(
+            PrescriptionBodyRequest prescription,
+            string seq,
+            string prescriptionNo,
+            string prescriptionDate,
+            CancellationToken cancellationToken = default)
         {
-            var body = new PrescriptionBodyResponse { data = batchList.ToArray() };
+            // ห่อ object เดี่ยวใน data array (ตาม contract เดิม)
+            var body = new PrescriptionBodyResponse { data = new[] { prescription } };
             var json = JsonSerializer.Serialize(body, _jsonOptions);
 
-            _logger?.LogInfo($"📤 Sending {batchList.Count} items ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
+            _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
 
             var stopwatch = Stopwatch.StartNew();
             try
@@ -359,31 +344,31 @@ namespace interface_Nonthavej.Services
                 if (response.IsSuccessStatusCode)
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    _logger?.LogInfo($"✅ Success | ⏱️ {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records - {responseContent}");
-                    await UpdateBatchStatusAsync(batchInfo, "1", cancellationToken);
-                    return (batchList.Count, 0);
+                    _logger?.LogInfo($"✅ Success | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms - {responseContent}");
+                    await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "1", cancellationToken);
+                    return true;
                 }
                 else
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
+                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 stopwatch.Stop();
-                _logger?.LogWarning($"⏱️ TIMEOUT after {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records | Limit: {_apiTimeoutSeconds}s");
+                _logger?.LogWarning($"⏱️ TIMEOUT | Rx: {prescriptionNo}, Seq: {seq} | {stopwatch.ElapsedMilliseconds}ms | Limit: {_apiTimeoutSeconds}s");
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger?.LogError($"❌ Send Exception | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
+                _logger?.LogError($"❌ Send Exception | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
             }
 
-            // ไม่ผ่านครั้งเดียว → อัพ status 3 เลย
-            _logger?.LogError($"❌ Send failed | {batchList.Count} records → status '3'");
-            await UpdateBatchStatusAsync(batchInfo, "3", cancellationToken);
-            return (0, batchList.Count);
+            // ไม่ผ่าน → อัพ status 3 ทันที
+            _logger?.LogError($"❌ Send failed | Rx: {prescriptionNo}, Seq: {seq} → status '3'");
+            await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
+            return false;
         }
 
         private async Task UpdateBatchStatusAsync(
@@ -413,15 +398,14 @@ namespace interface_Nonthavej.Services
                                   AND f_prescriptionno = @PrescriptionNo 
                                   AND Convert(varchar(10), f_lastmodified, 112) = @Lastmodified";
 
-                            using (var command = new SqlCommand(updateQuery, connection, transaction))
+                            using (var cmd = new SqlCommand(updateQuery, connection, transaction))
                             {
-                                command.Parameters.AddWithValue("@Status", status);
-                                command.Parameters.AddWithValue("@Seq", seq);
-                                command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                                command.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
-                                command.CommandTimeout = 30;
-
-                                await command.ExecuteNonQueryAsync(cancellationToken);
+                                cmd.Parameters.AddWithValue("@Status", status);
+                                cmd.Parameters.AddWithValue("@Seq", seq);
+                                cmd.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
+                                cmd.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
+                                cmd.CommandTimeout = 30;
+                                await cmd.ExecuteNonQueryAsync(cancellationToken);
                             }
                         }
 
@@ -443,9 +427,7 @@ namespace interface_Nonthavej.Services
             finally
             {
                 if (connection != null)
-                {
                     _connectionPool.ReleaseConnection(connection);
-                }
             }
         }
 
@@ -467,18 +449,18 @@ namespace interface_Nonthavej.Services
             {
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
 
-                using (var command = new SqlCommand(query, connection))
+                using (var cmd = new SqlCommand(query, connection))
                 {
-                    command.Parameters.AddWithValue("@Status", status);
-                    command.Parameters.AddWithValue("@Seq", seq);
-                    command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                    command.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
-                    command.CommandTimeout = 10;
+                    cmd.Parameters.AddWithValue("@Status", status);
+                    cmd.Parameters.AddWithValue("@Seq", seq);
+                    cmd.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
+                    cmd.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
+                    cmd.CommandTimeout = 10;
 
-                    int affected = await command.ExecuteNonQueryAsync(cancellationToken);
+                    int affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                     if (affected > 0)
-                        _logger?.LogInfo($"✅ Updated Seq:{seq}, Rx:{prescriptionNo} to status {status}");
+                        _logger?.LogInfo($"✅ Updated Seq:{seq}, Rx:{prescriptionNo} to status '{status}'");
                     else
                         _logger?.LogWarning($"⚠️ No record updated for Seq:{seq}, Rx:{prescriptionNo}");
                 }
@@ -490,9 +472,7 @@ namespace interface_Nonthavej.Services
             finally
             {
                 if (connection != null)
-                {
                     _connectionPool.ReleaseConnection(connection);
-                }
             }
         }
 
@@ -514,9 +494,7 @@ namespace interface_Nonthavej.Services
                   AND f_dispensestatus IN ('1', '3')";
 
             if (hasSearchText)
-            {
                 query += @" AND (f_hn LIKE @SearchText OR f_prescriptionno LIKE @SearchText)";
-            }
 
             query += @" ORDER BY f_prescriptionno, f_seq";
 
@@ -526,22 +504,20 @@ namespace interface_Nonthavej.Services
             {
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
 
-                using (var command = new SqlCommand(query, connection))
+                using (var cmd = new SqlCommand(query, connection))
                 {
-                    command.Parameters.AddWithValue("@QueryDate", queryDate);
+                    cmd.Parameters.AddWithValue("@QueryDate", queryDate);
                     if (hasSearchText)
-                    {
-                        command.Parameters.AddWithValue("@SearchText", "%" + searchText.Trim() + "%");
-                    }
-                    command.CommandTimeout = 30;
+                        cmd.Parameters.AddWithValue("@SearchText", "%" + searchText.Trim() + "%");
+                    cmd.CommandTimeout = 30;
 
-                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                    using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
                     {
                         while (await reader.ReadAsync(cancellationToken))
                         {
                             try
                             {
-                                var item = new GridViewDataModel
+                                dataList.Add(new GridViewDataModel
                                 {
                                     PrescriptionNo = reader["f_prescriptionno"]?.ToString() ?? "",
                                     Seq = reader["f_seq"]?.ToString() ?? "",
@@ -555,9 +531,7 @@ namespace interface_Nonthavej.Services
                                     Dosage = reader["f_dosagedispense"]?.ToString() ?? "",
                                     Status = reader["f_dispensestatus"]?.ToString() ?? "",
                                     Lastmodified = reader["f_lastmodified"]?.ToString() ?? "",
-                                };
-
-                                dataList.Add(item);
+                                });
                             }
                             catch (Exception ex)
                             {
@@ -574,9 +548,7 @@ namespace interface_Nonthavej.Services
             finally
             {
                 if (connection != null)
-                {
                     _connectionPool.ReleaseConnection(connection);
-                }
             }
 
             return dataList;
@@ -600,30 +572,22 @@ namespace interface_Nonthavej.Services
             foreach (var (prescriptionNo, prescriptionDate) in prescriptions)
             {
                 SqlConnection connection = null;
-
                 try
                 {
                     connection = await _connectionPool.GetConnectionAsync(cancellationToken);
 
-                    using (var command = new SqlCommand(query, connection))
+                    using (var cmd = new SqlCommand(query, connection))
                     {
-                        command.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                        command.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
-                        command.CommandTimeout = 30;
+                        cmd.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
+                        cmd.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
+                        cmd.CommandTimeout = 30;
 
-                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
                         {
                             while (await reader.ReadAsync(cancellationToken))
                             {
-                                try
-                                {
-                                    var prescriptionBody = BuildPrescriptionBody(reader);
-                                    dataList.Add(prescriptionBody);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger?.LogError($"Error parsing row for Rx={prescriptionNo}", ex);
-                                }
+                                try { dataList.Add(BuildPrescriptionBody(reader)); }
+                                catch (Exception ex) { _logger?.LogError($"Error parsing row for Rx={prescriptionNo}", ex); }
                             }
                         }
                     }
@@ -635,9 +599,7 @@ namespace interface_Nonthavej.Services
                 finally
                 {
                     if (connection != null)
-                    {
                         _connectionPool.ReleaseConnection(connection);
-                    }
                 }
             }
 
@@ -645,64 +607,39 @@ namespace interface_Nonthavej.Services
         }
 
         public async Task<(bool isHealthy, string message)> CheckHealthAsync()
-        {
-            return await _connectionPool.CheckPoolHealthAsync();
-        }
+            => await _connectionPool.CheckPoolHealthAsync();
 
         public void ResetCircuitBreaker()
-        {
-            _connectionPool.ResetCircuitBreaker();
-        }
+            => _connectionPool.ResetCircuitBreaker();
 
         private string ExtractDate(string dateStr)
         {
-            if (string.IsNullOrEmpty(dateStr))
-                return "";
-
-            if (DateTime.TryParse(dateStr, out DateTime date))
-                return date.ToString("yyyyMMdd");
-
-            return "";
+            if (string.IsNullOrEmpty(dateStr)) return "";
+            return DateTime.TryParse(dateStr, out DateTime d) ? d.ToString("yyyyMMdd") : "";
         }
 
         public static string ExtractDate2(string dateStr)
         {
-            if (string.IsNullOrEmpty(dateStr))
-                return "";
-
-            if (DateTime.TryParse(dateStr, out DateTime date))
-                return date.ToString("yyyy-MM-dd");
-
-            return "";
+            if (string.IsNullOrEmpty(dateStr)) return "";
+            return DateTime.TryParse(dateStr, out DateTime d) ? d.ToString("yyyy-MM-dd") : "";
         }
 
         public static string ExtractDatenull(string dateStr)
         {
-            if (string.IsNullOrEmpty(dateStr))
-                return DateTime.Now.ToString("yyyy-MM-dd");
-            if (DateTime.TryParse(dateStr, out DateTime date))
-                return date.ToString("yyyy-MM-dd");
-            return "";
+            if (string.IsNullOrEmpty(dateStr)) return DateTime.Now.ToString("yyyy-MM-dd");
+            return DateTime.TryParse(dateStr, out DateTime d) ? d.ToString("yyyy-MM-dd") : "";
         }
 
         private string ProcessSex(string sex)
         {
-            if (string.IsNullOrEmpty(sex))
-                return "U";
-
-            return sex switch
-            {
-                "1" => "F",
-                "2" => "M",
-                _ => "U"
-            };
+            if (string.IsNullOrEmpty(sex)) return "U";
+            return sex switch { "1" => "F", "2" => "M", _ => "U" };
         }
 
         private string ProcessPRN(string prnValue, int type)
         {
             if (string.IsNullOrEmpty(prnValue) || !int.TryParse(prnValue, out int value))
                 return "0";
-
             return (type == 1 && value == 1) || (type == 2 && value == 2) ? "1" : "0";
         }
 
