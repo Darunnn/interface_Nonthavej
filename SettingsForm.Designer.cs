@@ -42,10 +42,6 @@
             txtServer = new TextBox();
             lblServer = new Label();
             tabAPI = new TabPage();
-            numApiRetryDelay = new NumericUpDown();
-            lblApiRetryDelay = new Label();
-            numApiRetry = new NumericUpDown();
-            lblApiRetry = new Label();
             numApiTimeout = new NumericUpDown();
             lblApiTimeout = new Label();
             txtApiEndpoint = new TextBox();
@@ -60,8 +56,6 @@
             tabControl.SuspendLayout();
             tabDatabase.SuspendLayout();
             tabAPI.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)numApiRetryDelay).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numApiRetry).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numApiTimeout).BeginInit();
             tabLog.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)numLogRetention).BeginInit();
@@ -193,10 +187,6 @@
             // tabAPI
             // 
             tabAPI.BackColor = Color.White;
-            tabAPI.Controls.Add(numApiRetryDelay);
-            tabAPI.Controls.Add(lblApiRetryDelay);
-            tabAPI.Controls.Add(numApiRetry);
-            tabAPI.Controls.Add(lblApiRetry);
             tabAPI.Controls.Add(numApiTimeout);
             tabAPI.Controls.Add(lblApiTimeout);
             tabAPI.Controls.Add(txtApiEndpoint);
@@ -207,44 +197,6 @@
             tabAPI.Size = new Size(628, 336);
             tabAPI.TabIndex = 1;
             tabAPI.Text = "🌐 API Settings";
-            // 
-            // numApiRetryDelay
-            // 
-            numApiRetryDelay.Location = new Point(200, 200);
-            numApiRetryDelay.Maximum = new decimal(new int[] { 60, 0, 0, 0 });
-            numApiRetryDelay.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
-            numApiRetryDelay.Name = "numApiRetryDelay";
-            numApiRetryDelay.Size = new Size(120, 22);
-            numApiRetryDelay.TabIndex = 7;
-            numApiRetryDelay.Value = new decimal(new int[] { 5, 0, 0, 0 });
-            // 
-            // lblApiRetryDelay
-            // 
-            lblApiRetryDelay.AutoSize = true;
-            lblApiRetryDelay.Location = new Point(30, 202);
-            lblApiRetryDelay.Name = "lblApiRetryDelay";
-            lblApiRetryDelay.Size = new Size(170, 14);
-            lblApiRetryDelay.TabIndex = 6;
-            lblApiRetryDelay.Text = "Retry Delay (seconds) [1-60]:";
-            // 
-            // numApiRetry
-            // 
-            numApiRetry.Location = new Point(200, 158);
-            numApiRetry.Maximum = new decimal(new int[] { 10, 0, 0, 0 });
-            numApiRetry.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
-            numApiRetry.Name = "numApiRetry";
-            numApiRetry.Size = new Size(120, 22);
-            numApiRetry.TabIndex = 5;
-            numApiRetry.Value = new decimal(new int[] { 3, 0, 0, 0 });
-            // 
-            // lblApiRetry
-            // 
-            lblApiRetry.AutoSize = true;
-            lblApiRetry.Location = new Point(30, 160);
-            lblApiRetry.Name = "lblApiRetry";
-            lblApiRetry.Size = new Size(135, 14);
-            lblApiRetry.TabIndex = 4;
-            lblApiRetry.Text = "Retry Attempts [1-10]:";
             // 
             // numApiTimeout
             // 
@@ -376,8 +328,6 @@
             tabDatabase.PerformLayout();
             tabAPI.ResumeLayout(false);
             tabAPI.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)numApiRetryDelay).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numApiRetry).EndInit();
             ((System.ComponentModel.ISupportInitialize)numApiTimeout).EndInit();
             tabLog.ResumeLayout(false);
             tabLog.PerformLayout();
@@ -414,10 +364,6 @@
         private System.Windows.Forms.TextBox txtApiEndpoint;
         private System.Windows.Forms.Label lblApiTimeout;
         private System.Windows.Forms.NumericUpDown numApiTimeout;
-        private System.Windows.Forms.Label lblApiRetry;
-        private System.Windows.Forms.NumericUpDown numApiRetry;
-        private System.Windows.Forms.Label lblApiRetryDelay;
-        private System.Windows.Forms.NumericUpDown numApiRetryDelay;
 
         // Log Tab
         private System.Windows.Forms.Label lblLogRetention;

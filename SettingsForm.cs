@@ -72,8 +72,7 @@ namespace interface_Nonthavej
 
             txtApiEndpoint.Text = _apiSettings.ApiEndpoint;
             numApiTimeout.Value = _apiSettings.ApiTimeoutSeconds;
-            numApiRetry.Value = _apiSettings.ApiRetryAttempts;
-            numApiRetryDelay.Value = _apiSettings.ApiRetryDelaySeconds;
+     
         }
 
         private void LoadLogSettings()
@@ -252,8 +251,7 @@ namespace interface_Nonthavej
         {
             _apiSettings.ApiEndpoint = txtApiEndpoint.Text.Trim();
             _apiSettings.ApiTimeoutSeconds = (int)numApiTimeout.Value;
-            _apiSettings.ApiRetryAttempts = (int)numApiRetry.Value;
-            _apiSettings.ApiRetryDelaySeconds = (int)numApiRetryDelay.Value;
+
         }
 
         private void UpdateLogSettingsFromForm()
@@ -342,12 +340,7 @@ namespace interface_Nonthavej
                 case "ApiTimeout":
                     numApiTimeout.Focus();
                     break;
-                case "ApiRetry":
-                    numApiRetry.Focus();
-                    break;
-                case "ApiRetryDelay":
-                    numApiRetryDelay.Focus();
-                    break;
+              
             }
         }
 
