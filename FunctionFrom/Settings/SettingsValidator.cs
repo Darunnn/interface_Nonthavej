@@ -81,25 +81,7 @@ namespace interface_Nonthavej.FunctionFrom.Settings
                 };
             }
 
-            if (settings.ApiRetryAttempts < 0)
-            {
-                return new ValidationResult
-                {
-                    IsValid = false,
-                    ErrorMessage = "API Retry Attempts ต้องไม่ติดลบ",
-                    FieldName = "ApiRetry"
-                };
-            }
-
-            if (settings.ApiRetryDelaySeconds < 0)
-            {
-                return new ValidationResult
-                {
-                    IsValid = false,
-                    ErrorMessage = "API Retry Delay ต้องไม่ติดลบ",
-                    FieldName = "ApiRetryDelay"
-                };
-            }
+          
 
             return new ValidationResult { IsValid = true };
         }

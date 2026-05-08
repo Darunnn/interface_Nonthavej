@@ -66,8 +66,18 @@ namespace interface_Nonthavej
 
                 if (_appConfig != null && !string.IsNullOrEmpty(_appConfig.ConnectionString))
                 {
-                    _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
-                    _dataServiceTest = new DataServicetest(_appConfig.ConnectionString, _logger, _appConfig.MaxProcessingBatchSize);
+                    _dataService = new DataService(
+                _appConfig.ConnectionString,
+                _appConfig.ApiEndpoint,
+                _logger,
+                _appConfig.MaxProcessingBatchSize,   // อ่านจาก appsettings.ini
+                _appConfig.ApiTimeoutSeconds          // อ่านจาก appsettings.ini
+            );
+                    _dataServiceTest = new DataServicetest(
+           _appConfig.ConnectionString,
+           _logger,
+           _appConfig.MaxProcessingBatchSize    // อ่านจาก appsettings.ini
+       );
                     _logger.LogInfo("DataService initialized");
                 }
                 else
@@ -84,7 +94,7 @@ namespace interface_Nonthavej
                 _uiHelper = new Fnupdatefrom1(_logger, this);
                 _exportHelper = new FnExport(_dataService, _logger, _uiHelper);
                 _dbConnectionHelper = new FnDatabaseConnection(_appConfig.ConnectionString, _logger);
-                _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
+               
 
                 InitializeDataTable();
                 _uiHelper.UpdateUIState(startStopButton, statusLabel, _dbConnectionHelper.IsDatabaseConnected, _isServiceRunning);
@@ -584,7 +594,13 @@ namespace interface_Nonthavej
                         _appConfig = new AppConfig();
                         if (_appConfig.LoadConfiguration())
                         {
-                            _dataService = new DataService(_appConfig.ConnectionString, _appConfig.ApiEndpoint, _logger);
+                            _dataService = new DataService(
+       _appConfig.ConnectionString,
+       _appConfig.ApiEndpoint,
+       _logger,
+       _appConfig.MaxProcessingBatchSize,   // อ่านจาก appsettings.ini
+       _appConfig.ApiTimeoutSeconds          // อ่านจาก appsettings.ini
+   );
                             _dbConnectionHelper = new FnDatabaseConnection(_appConfig.ConnectionString, _logger);
                             _exportHelper = new FnExport(_dataService, _logger, _uiHelper);
 

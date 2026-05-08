@@ -33,12 +33,13 @@ namespace interface_Nonthavej.Services
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         };
 
+
         public DataService(
             string connectionString,
             string apiUrl,
-            LogManager logger = null,
-            int batchSize = 10,
-            int apiTimeoutSeconds = 30)
+            LogManager logger,
+            int batchSize,
+            int apiTimeoutSeconds)
         {
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _apiUrl = apiUrl;
@@ -322,15 +323,14 @@ namespace interface_Nonthavej.Services
         /// ส่ง API ทีละ 1 record — ไม่ผ่านอัพ status 3 ทันที
         /// </summary>
         private async Task<bool> SendSingleToApiAsync(
-            PrescriptionBodyRequest prescription,
-            string seq,
-            string prescriptionNo,
-            string prescriptionDate,
-            CancellationToken cancellationToken = default)
+     PrescriptionBodyRequest prescription,
+     string seq,
+     string prescriptionNo,
+     string prescriptionDate,
+     CancellationToken cancellationToken = default)
         {
-            // ห่อ object เดี่ยวใน data array (ตาม contract เดิม)
-            var body = new PrescriptionBodyResponse { data = new[] { prescription } };
-            var json = JsonSerializer.Serialize(body, _jsonOptions);
+            // ✅ ส่ง object เดี่ยวโดยตรง ไม่ห่อ array
+            var json = JsonSerializer.Serialize(prescription, _jsonOptions);
 
             _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
 

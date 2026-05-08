@@ -28,7 +28,7 @@ namespace interface_Nonthavej.Services.test
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         };
 
-        public DataServicetest(string connectionString, LogManager logger = null, int batchSize = 100)
+        public DataServicetest(string connectionString, LogManager logger = null, int batchSize =100)
         {
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _logger = logger ?? new LogManager();
