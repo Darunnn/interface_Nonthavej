@@ -31,7 +31,7 @@ namespace interface_Nonthavej.Services
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         };
 
-        public DataService(string connectionString, string apiUrl, LogManager logger = null, int batchSize = 100)
+        public DataService(string connectionString, string apiUrl, LogManager logger = null, int batchSize = 10)
         {
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _apiUrl = apiUrl;
