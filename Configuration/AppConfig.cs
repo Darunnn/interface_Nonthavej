@@ -162,11 +162,7 @@ ApiEndpoint=http://localhost:3001/api/conHIS/insertPrescription
 # API timeout in seconds (default: 30)
 ApiTimeoutSeconds=30
 
-# Number of retry attempts (default: 3)
-ApiRetryAttempts=3
 
-# Delay between retries in seconds (default: 5)
-ApiRetryDelaySeconds=5
 
 # ===== PROCESSING SETTINGS =====
 # Processing interval in seconds (default: 5)
