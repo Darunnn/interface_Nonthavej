@@ -43,14 +43,7 @@ namespace interface_Nonthavej.FunctionFrom.Settings
                             if (int.TryParse(value, out int timeout))
                                 settings.ApiTimeoutSeconds = timeout;
                             break;
-                        case "APIRETRYATTEMPTS":
-                            if (int.TryParse(value, out int retry))
-                                settings.ApiRetryAttempts = retry;
-                            break;
-                        case "APIRETRYDELAYSECONDS":
-                            if (int.TryParse(value, out int delay))
-                                settings.ApiRetryDelaySeconds = delay;
-                            break;
+                       
                     }
                 }
             }
@@ -76,10 +69,6 @@ namespace interface_Nonthavej.FunctionFrom.Settings
             content.AppendLine($"ApiEndpoint={settings.ApiEndpoint}");
             content.AppendLine($"# API timeout in seconds (default: 30)");
             content.AppendLine($"ApiTimeoutSeconds={settings.ApiTimeoutSeconds}");
-            content.AppendLine($"# API retry attempts when failed (default: 3)");
-            content.AppendLine($"ApiRetryAttempts={settings.ApiRetryAttempts}");
-            content.AppendLine($"# API retry delay in seconds (default: 5)");
-            content.AppendLine($"ApiRetryDelaySeconds={settings.ApiRetryDelaySeconds}");
             content.AppendLine();
             content.AppendLine("# ===== PROCESSING SETTINGS =====");
             content.AppendLine("# ระยะเวลาในการตรวจสอบข้อมูลใหม่ (วินาที)");

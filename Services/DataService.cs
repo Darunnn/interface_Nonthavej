@@ -23,8 +23,6 @@ namespace interface_Nonthavej.Services
         private readonly LogManager _logger;
         private readonly int _batchSize;
         private readonly int _apiTimeoutSeconds;
-        private readonly int _apiRetryAttempts;
-        private readonly int _apiRetryDelaySeconds;
         private bool _disposed = false;
 
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
@@ -47,8 +45,6 @@ namespace interface_Nonthavej.Services
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _apiUrl = apiUrl;
             _apiTimeoutSeconds = apiTimeoutSeconds;
-            _apiRetryAttempts = apiRetryAttempts;
-            _apiRetryDelaySeconds = apiRetryDelaySeconds;
             _httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromSeconds(apiTimeoutSeconds)
@@ -57,7 +53,7 @@ namespace interface_Nonthavej.Services
             _logger = logger ?? new LogManager();
             _batchSize = batchSize;
 
-            _logger?.LogInfo($"🔧 DataService initialized | BatchSize: {_batchSize} | Timeout: {_apiTimeoutSeconds}s | Retry: {_apiRetryAttempts}x | RetryDelay: {_apiRetryDelaySeconds}s");
+            _logger?.LogInfo($"🔧 DataService initialized | BatchSize: {_batchSize} | Timeout: {_apiTimeoutSeconds}s");
         }
 
         private string ToNull(string value)
@@ -344,66 +340,50 @@ namespace interface_Nonthavej.Services
         }
 
         private async Task<(int success, int failed)> SendBatchToApiAsync(
-            List<PrescriptionBodyRequest> batchList,
-            List<(string seq, string prescriptionNo, string prescriptionDate)> batchInfo,
-            CancellationToken cancellationToken = default)
+        List<PrescriptionBodyRequest> batchList,
+        List<(string seq, string prescriptionNo, string prescriptionDate)> batchInfo,
+        CancellationToken cancellationToken = default)
         {
-            int successCount = 0;
-            int failedCount = 0;
-            int attempt = 0;
-
             var body = new PrescriptionBodyResponse { data = batchList.ToArray() };
             var json = JsonSerializer.Serialize(body, _jsonOptions);
 
-            _logger?.LogInfo($"📤 Sending {batchList.Count} items ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s | Max attempts: {_apiRetryAttempts + 1}");
+            _logger?.LogInfo($"📤 Sending {batchList.Count} items ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
 
-            while (attempt <= _apiRetryAttempts)
+            var stopwatch = Stopwatch.StartNew();
+            try
             {
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
-                    var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
-                    stopwatch.Stop();
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
+                stopwatch.Stop();
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var responseContent = await response.Content.ReadAsStringAsync();
-                        _logger?.LogInfo($"✅ Success (attempt {attempt + 1}/{_apiRetryAttempts + 1}) | ⏱️ {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records - {responseContent}");
-                        successCount = batchList.Count;
-                        await UpdateBatchStatusAsync(batchInfo, "1", cancellationToken);
-                        return (successCount, failedCount);
-                    }
-                    else
-                    {
-                        var errorContent = await response.Content.ReadAsStringAsync();
-                        _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} (attempt {attempt + 1}/{_apiRetryAttempts + 1}) | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
-                    }
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                if (response.IsSuccessStatusCode)
                 {
-                    stopwatch.Stop();
-                    _logger?.LogWarning($"⏱️ TIMEOUT (attempt {attempt + 1}/{_apiRetryAttempts + 1}) after {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records | Limit: {_apiTimeoutSeconds}s");
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    _logger?.LogInfo($"✅ Success | ⏱️ {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records - {responseContent}");
+                    await UpdateBatchStatusAsync(batchInfo, "1", cancellationToken);
+                    return (batchList.Count, 0);
                 }
-                catch (Exception ex)
+                else
                 {
-                    stopwatch.Stop();
-                    _logger?.LogError($"❌ Send Exception (attempt {attempt + 1}/{_apiRetryAttempts + 1}) | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
-                }
-
-                attempt++;
-
-                if (attempt <= _apiRetryAttempts)
-                {
-                    _logger?.LogInfo($"🔄 Retrying in {_apiRetryDelaySeconds}s... ({attempt}/{_apiRetryAttempts})");
-                    await Task.Delay(TimeSpan.FromSeconds(_apiRetryDelaySeconds), cancellationToken);
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
                 }
             }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                stopwatch.Stop();
+                _logger?.LogWarning($"⏱️ TIMEOUT after {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records | Limit: {_apiTimeoutSeconds}s");
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                _logger?.LogError($"❌ Send Exception | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
+            }
 
-            _logger?.LogError($"❌ All {_apiRetryAttempts + 1} attempts failed | {batchList.Count} records → status '3'");
-            failedCount = batchList.Count;
+            // ไม่ผ่านครั้งเดียว → อัพ status 3 เลย
+            _logger?.LogError($"❌ Send failed | {batchList.Count} records → status '3'");
             await UpdateBatchStatusAsync(batchInfo, "3", cancellationToken);
-            return (successCount, failedCount);
+            return (0, batchList.Count);
         }
 
         private async Task UpdateBatchStatusAsync(

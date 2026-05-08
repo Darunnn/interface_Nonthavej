@@ -10,8 +10,7 @@ namespace interface_Nonthavej.Models
     {
         public string ApiEndpoint { get; set; } = string.Empty;
         public int ApiTimeoutSeconds { get; set; } = 30;
-        public int ApiRetryAttempts { get; set; } = 3;
-        public int ApiRetryDelaySeconds { get; set; } = 5;
+
     }
     public class DatabaseSettings
     {

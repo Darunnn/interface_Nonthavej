@@ -17,8 +17,7 @@ namespace interface_Nonthavej.Configuration
         // API Settings
         public string ApiEndpoint { get; private set; } // ✅ Fixed: Changed from static to instance property
         public int ApiTimeoutSeconds { get; private set; } = 30;
-        public int ApiRetryAttempts { get; private set; } = 3;
-        public int ApiRetryDelaySeconds { get; private set; } = 5;
+
 
         // Processing Settings
         public int ProcessingIntervalSeconds { get; private set; } = 5;
@@ -108,14 +107,6 @@ namespace interface_Nonthavej.Configuration
                         if (int.TryParse(value, out int timeout) && timeout > 0)
                             ApiTimeoutSeconds = timeout;
                         break;
-                    case "APIRETRYATTEMPTS":
-                        if (int.TryParse(value, out int retry) && retry > 0)
-                            ApiRetryAttempts = retry;
-                        break;
-                    case "APIRETRYDELAYSECONDS":
-                        if (int.TryParse(value, out int delay) && delay > 0)
-                            ApiRetryDelaySeconds = delay;
-                        break;
                     case "PROCESSINGINTERVALSECONDS":
                         if (int.TryParse(value, out int interval) && interval > 0)
                             ProcessingIntervalSeconds = interval;
@@ -144,8 +135,7 @@ namespace interface_Nonthavej.Configuration
             if (ApiTimeoutSeconds <= 0)
                 throw new Exception("ApiTimeoutSeconds must be greater than 0");
 
-            if (ApiRetryAttempts < 0)
-                throw new Exception("ApiRetryAttempts must be 0 or greater");
+
 
             if (ProcessingIntervalSeconds <= 0)
                 throw new Exception("ProcessingIntervalSeconds must be greater than 0");
@@ -203,8 +193,6 @@ Database Connection:
 API Settings:
   Endpoint: {ApiEndpoint}
   Timeout: {ApiTimeoutSeconds} seconds
-  Retry Attempts: {ApiRetryAttempts}
-  Retry Delay: {ApiRetryDelaySeconds} seconds
 
 Processing Settings:
   Interval: {ProcessingIntervalSeconds} seconds
