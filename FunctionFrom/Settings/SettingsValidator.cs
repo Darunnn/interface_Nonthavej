@@ -126,5 +126,5 @@ namespace interface_Nonthavej.FunctionFrom.Settings
     /// <summary>
     /// ผลลัพธ์การตรวจสอบความถูกต้อง
     /// </summary>
-    
+
 }

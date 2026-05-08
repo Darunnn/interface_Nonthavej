@@ -11,7 +11,6 @@ using interface_Nonthavej.Models;
 using interface_Nonthavej.Utils;
 using interface_Nonthavej.Database;
 using System.Threading;
-using System.Diagnostics;
 
 namespace interface_Nonthavej.Services
 {
@@ -22,9 +21,6 @@ namespace interface_Nonthavej.Services
         private readonly HttpClient _httpClient;
         private readonly LogManager _logger;
         private readonly int _batchSize;
-        private readonly int _apiTimeoutSeconds;
-        private readonly int _apiRetryAttempts;
-        private readonly int _apiRetryDelaySeconds;
         private bool _disposed = false;
 
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
@@ -35,29 +31,14 @@ namespace interface_Nonthavej.Services
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         };
 
-        public DataService(
-            string connectionString,
-            string apiUrl,
-            LogManager logger = null,
-            int batchSize = 10,
-            int apiTimeoutSeconds = 30,
-            int apiRetryAttempts = 3,
-            int apiRetryDelaySeconds = 5)
+        public DataService(string connectionString, string apiUrl, LogManager logger = null, int batchSize = 100)
         {
             _connectionPool = new DatabaseConnectionPool(connectionString, logger);
             _apiUrl = apiUrl;
-            _apiTimeoutSeconds = apiTimeoutSeconds;
-            _apiRetryAttempts = apiRetryAttempts;
-            _apiRetryDelaySeconds = apiRetryDelaySeconds;
-            _httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(apiTimeoutSeconds)
-            };
+            _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.ConnectionClose = false;
             _logger = logger ?? new LogManager();
             _batchSize = batchSize;
-
-            _logger?.LogInfo($"🔧 DataService initialized | BatchSize: {_batchSize} | Timeout: {_apiTimeoutSeconds}s | Retry: {_apiRetryAttempts}x | RetryDelay: {_apiRetryDelaySeconds}s");
         }
 
         private string ToNull(string value)
@@ -181,6 +162,7 @@ namespace interface_Nonthavej.Services
             var errors = new List<string>();
             var currentDate = DateHelper.GetCurrentDateChristianEra();
 
+            // ตรวจสอบ Circuit Breaker ก่อน
             var circuitState = _connectionPool.GetCircuitState();
             if (circuitState == CircuitBreakerState.Open)
             {
@@ -225,6 +207,7 @@ namespace interface_Nonthavej.Services
 
             try
             {
+                // ใช้ Connection Pool
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
 
                 using (var command = new SqlCommand(query, connection))
@@ -259,6 +242,7 @@ namespace interface_Nonthavej.Services
                                     continue;
                                 }
 
+                                // ถ้า prescriptionNo ขึ้นต้นด้วย R หรือ r → ไม่ส่ง API แต่อัพเดต status "1"
                                 if (prescriptionNo.StartsWith("R", StringComparison.OrdinalIgnoreCase))
                                 {
                                     _logger?.LogInfo($"⏭️ Skip API (R-prefix) - Rx: {prescriptionNo}, Seq: {seq}");
@@ -301,6 +285,7 @@ namespace interface_Nonthavej.Services
                             }
                         }
 
+
                         if (skipApiBatchInfo.Count > 0)
                         {
                             _logger?.LogInfo($"⏭️ Updating {skipApiBatchInfo.Count} R-prefix records (no API call)");
@@ -334,11 +319,14 @@ namespace interface_Nonthavej.Services
             }
             finally
             {
+                // คืน Connection กลับ Pool
                 if (connection != null)
                 {
                     _connectionPool.ReleaseConnection(connection);
                 }
+
             }
+
 
             return (successCount, failedCount, errors);
         }
@@ -350,59 +338,41 @@ namespace interface_Nonthavej.Services
         {
             int successCount = 0;
             int failedCount = 0;
-            int attempt = 0;
 
-            var body = new PrescriptionBodyResponse { data = batchList.ToArray() };
-            var json = JsonSerializer.Serialize(body, _jsonOptions);
-
-            _logger?.LogInfo($"📤 Sending {batchList.Count} items ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s | Max attempts: {_apiRetryAttempts + 1}");
-
-            while (attempt <= _apiRetryAttempts)
+            try
             {
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
-                    var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
-                    stopwatch.Stop();
+                var body = new PrescriptionBodyResponse { data = batchList.ToArray() };
+                var json = JsonSerializer.Serialize(body, _jsonOptions);
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var responseContent = await response.Content.ReadAsStringAsync();
-                        _logger?.LogInfo($"✅ Success (attempt {attempt + 1}/{_apiRetryAttempts + 1}) | ⏱️ {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records - {responseContent}");
-                        successCount = batchList.Count;
-                        await UpdateBatchStatusAsync(batchInfo, "1", cancellationToken);
-                        return (successCount, failedCount);
-                    }
-                    else
-                    {
-                        var errorContent = await response.Content.ReadAsStringAsync();
-                        _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} (attempt {attempt + 1}/{_apiRetryAttempts + 1}) | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
-                    }
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    stopwatch.Stop();
-                    _logger?.LogWarning($"⏱️ TIMEOUT (attempt {attempt + 1}/{_apiRetryAttempts + 1}) after {stopwatch.ElapsedMilliseconds}ms | {batchList.Count} records | Limit: {_apiTimeoutSeconds}s");
-                }
-                catch (Exception ex)
-                {
-                    stopwatch.Stop();
-                    _logger?.LogError($"❌ Send Exception (attempt {attempt + 1}/{_apiRetryAttempts + 1}) | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
-                }
+                _logger?.LogInfo($"📤 Sending {batchList.Count} items ({json.Length / 1024.0:F1} KB)");
 
-                attempt++;
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
 
-                if (attempt <= _apiRetryAttempts)
+                if (response.IsSuccessStatusCode)
                 {
-                    _logger?.LogInfo($"🔄 Retrying in {_apiRetryDelaySeconds}s... ({attempt}/{_apiRetryAttempts})");
-                    await Task.Delay(TimeSpan.FromSeconds(_apiRetryDelaySeconds), cancellationToken);
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    _logger?.LogInfo($"✅ Success - {responseContent}");
+
+                    successCount = batchList.Count;
+                    await UpdateBatchStatusAsync(batchInfo, "1", cancellationToken);
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger?.LogError($"❌ API Error {(int)response.StatusCode}: {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
+
+                    failedCount = batchList.Count;
+                    await UpdateBatchStatusAsync(batchInfo, "3", cancellationToken);
                 }
             }
+            catch (Exception ex)
+            {
+                _logger?.LogError($"❌ Send Exception", ex);
+                failedCount = batchList.Count;
+                await UpdateBatchStatusAsync(batchInfo, "3", cancellationToken);
+            }
 
-            _logger?.LogError($"❌ All {_apiRetryAttempts + 1} attempts failed | {batchList.Count} records → status '3'");
-            failedCount = batchList.Count;
-            await UpdateBatchStatusAsync(batchInfo, "3", cancellationToken);
             return (successCount, failedCount);
         }
 
@@ -528,7 +498,7 @@ namespace interface_Nonthavej.Services
                 SELECT 
                     f_prescriptionno, f_seq, f_seqmax, f_prescriptionnodate,
                     f_patientname, f_hn, f_orderitemname, f_orderqty,
-                    f_orderunitdesc, f_dosagedispense, f_dispensestatus, f_lastmodified
+                    f_orderunitdesc, f_dosagedispense, f_dispensestatus ,f_lastmodified
                 FROM tb_thaneshosp_middle
                 WHERE CONVERT(varchar(10), f_lastmodified, 112) = @QueryDate
                   AND f_dispensestatus IN ('1', '3')";
@@ -664,11 +634,17 @@ namespace interface_Nonthavej.Services
             return dataList;
         }
 
+        /// <summary>
+        /// ตรวจสอบสุขภาพของ Connection Pool
+        /// </summary>
         public async Task<(bool isHealthy, string message)> CheckHealthAsync()
         {
             return await _connectionPool.CheckPoolHealthAsync();
         }
 
+        /// <summary>
+        /// รีเซ็ต Circuit Breaker
+        /// </summary>
         public void ResetCircuitBreaker()
         {
             _connectionPool.ResetCircuitBreaker();
@@ -695,7 +671,6 @@ namespace interface_Nonthavej.Services
 
             return "";
         }
-
         public static string ExtractDatenull(string dateStr)
         {
             if (string.IsNullOrEmpty(dateStr))
@@ -704,7 +679,6 @@ namespace interface_Nonthavej.Services
                 return date.ToString("yyyy-MM-dd");
             return "";
         }
-
         private string ProcessSex(string sex)
         {
             if (string.IsNullOrEmpty(sex))

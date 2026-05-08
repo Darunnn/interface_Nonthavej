@@ -102,7 +102,7 @@ namespace interface_Nonthavej.Database
                     await HealthCheckAsync(connection, cancellationToken);
                 });
 
-                
+
                 return connection;
             }
             catch (Exception ex)
@@ -127,7 +127,7 @@ namespace interface_Nonthavej.Database
                         connection.Close();
                     }
                     connection.Dispose();
-                   
+
                 }
             }
             catch (Exception ex)
