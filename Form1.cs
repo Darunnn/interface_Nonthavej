@@ -493,10 +493,10 @@ namespace interface_Nonthavej
                     foreach (var error in errors)
                         _logger.LogWarning(error);
 
-                    _logger.LogInfo($"Loop #{loopCount} Complete: {successCount} success, {failedCount} failed");
+                   
 
                     int delaySeconds = _appConfig?.ProcessingIntervalSeconds ?? 15;
-                    _logger.LogInfo($"⏳ Waiting {delaySeconds}s before next check...");
+                    
 
                     for (int i = delaySeconds; i > 0; i--)
                     {
