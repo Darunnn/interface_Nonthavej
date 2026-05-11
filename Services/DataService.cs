@@ -369,13 +369,13 @@ namespace interface_Nonthavej.Services
 
             var json = JsonSerializer.Serialize(prescription, _jsonOptions);
 
-            // ✅ DEBUG: log JSON 500 ตัวอักษรแรก เพื่อตรวจสอบ null field ที่ส่งไป
-            _logger?.LogInfo($"📦 Payload Rx:{prescriptionNo} Seq:{seq}: {json}");
+            
             _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
-
+            await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate);
             var stopwatch = Stopwatch.StartNew();
             try
             {
+                _logger?.LogInfo($"📦 Payload Rx:{prescriptionNo} Seq:{seq}: {json}");
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
                 stopwatch.Stop();
@@ -391,7 +391,7 @@ namespace interface_Nonthavej.Services
                 }
                 else
                 {
-                    // ✅ FIX #8: ใช้ range operator แทน Substring() + null guard
+                    var errorContent = await response.Content.ReadAsStringAsync();
                     var preview = responseContent.Length > 500 ? responseContent[..500] : responseContent;
                     _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {preview}");
                 }
@@ -701,6 +701,33 @@ namespace interface_Nonthavej.Services
                 _connectionPool?.Dispose();
                 _httpClient?.Dispose();
                 _disposed = true;
+            }
+        }
+        private async Task SavePayloadToFileAsync(string json, string prescriptionNo, string seq, string prescriptionDate)
+        {
+            try
+            {
+                // folder: {AppDir}/Payload/{yyyyMMdd}/
+                string baseFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Payload");
+                string dateFolder = Path.Combine(baseFolder, prescriptionDate); // prescriptionDate = yyyyMMdd
+
+                if (!Directory.Exists(dateFolder))
+                    Directory.CreateDirectory(dateFolder);
+
+                // ชื่อไฟล์: Rx_D69-00039_Seq4_HHmmss.json
+                string timestamp = DateTime.Now.ToString("HHmmss_fff");
+                string safeRx = prescriptionNo.Replace("/", "-").Replace("\\", "-");
+                string fileName = $"Rx_{safeRx}_Seq{seq}_{timestamp}.json";
+                string filePath = Path.Combine(dateFolder, fileName);
+
+                await File.WriteAllTextAsync(filePath, json, System.Text.Encoding.UTF8);
+
+                _logger?.LogInfo($"💾 Saved payload: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                // ไม่ให้ error นี้หยุดการส่ง API
+                _logger?.LogWarning($"⚠️ Could not save payload file: {ex.Message}");
             }
         }
     }
