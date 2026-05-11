@@ -354,11 +354,9 @@ namespace interface_Nonthavej.Services
         }
 
         private async Task<bool> SendSingleToApiAsync(
-     PrescriptionBodyRequest prescription,
-     string seq,
-     string prescriptionNo,
-     string prescriptionDate,
-     CancellationToken cancellationToken = default)
+    PrescriptionBodyRequest prescription,
+    string seq, string prescriptionNo, string prescriptionDate,
+    CancellationToken cancellationToken = default)
         {
             if (prescription == null)
             {
@@ -367,14 +365,14 @@ namespace interface_Nonthavej.Services
                 return false;
             }
 
-            // ✅ ห่อ object ก่อนส่ง API
             var wrapper = new { data = prescription };
             var json = JsonSerializer.Serialize(wrapper, _jsonOptions);
 
-            _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
-            await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate);
+            _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB)");
 
             var stopwatch = Stopwatch.StartNew();
+            bool isSuccess = false; // ✅ track ผล
+
             try
             {
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -385,19 +383,19 @@ namespace interface_Nonthavej.Services
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logger?.LogInfo($"✅ Success | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms - {responseContent}");
+                    isSuccess = true; // ✅
+                    _logger?.LogInfo($"✅ Success | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms");
                     await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "1", cancellationToken);
-                    return true;
                 }
                 else
                 {
-                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {responseContent}");
+                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | {responseContent}");
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 stopwatch.Stop();
-                _logger?.LogWarning($"⏱️ TIMEOUT | Rx: {prescriptionNo}, Seq: {seq} | {stopwatch.ElapsedMilliseconds}ms | Limit: {_apiTimeoutSeconds}s");
+                _logger?.LogWarning($"⏱️ TIMEOUT | Rx: {prescriptionNo}, Seq: {seq} | {stopwatch.ElapsedMilliseconds}ms");
             }
             catch (HttpRequestException ex)
             {
@@ -407,12 +405,21 @@ namespace interface_Nonthavej.Services
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger?.LogError($"❌ Send Exception | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
+                _logger?.LogError($"❌ Send Exception | Rx: {prescriptionNo}, Seq: {seq}", ex);
+            }
+            finally
+            {
+                // ✅ Save หลังรู้ผลเสมอ ไม่ว่า success หรือ error
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, isSuccess);
             }
 
-            _logger?.LogError($"❌ Send failed | Rx: {prescriptionNo}, Seq: {seq} → status '3'");
-            await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
-            return false;
+            if (!isSuccess)
+            {
+                _logger?.LogError($"❌ Send failed | Rx: {prescriptionNo}, Seq: {seq} → status '3'");
+                await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
+            }
+
+            return isSuccess;
         }
 
         private async Task UpdateBatchStatusAsync(
@@ -701,30 +708,32 @@ namespace interface_Nonthavej.Services
                 _disposed = true;
             }
         }
-        private async Task SavePayloadToFileAsync(string json, string prescriptionNo, string seq, string prescriptionDate)
+        // เปลี่ยน signature เพิ่ม isSuccess
+        private async Task SavePayloadToFileAsync(
+            string json, string prescriptionNo, string seq,
+            string prescriptionDate, bool isSuccess)
         {
             try
             {
-                // folder: {AppDir}/Payload/{yyyyMMdd}/
                 string baseFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Payload");
-                string dateFolder = Path.Combine(baseFolder, prescriptionDate); // prescriptionDate = yyyyMMdd
+
+                // ✅ แยก subfolder ตาม success/error
+                string statusFolder = isSuccess ? "success" : "error";
+                string dateFolder = Path.Combine(baseFolder, prescriptionDate, statusFolder);
 
                 if (!Directory.Exists(dateFolder))
                     Directory.CreateDirectory(dateFolder);
 
-                // ชื่อไฟล์: Rx_D69-00039_Seq4_HHmmss.json
                 string timestamp = DateTime.Now.ToString("HHmmss_fff");
                 string safeRx = prescriptionNo.Replace("/", "-").Replace("\\", "-");
                 string fileName = $"Rx_{safeRx}_Seq{seq}_{timestamp}.json";
                 string filePath = Path.Combine(dateFolder, fileName);
 
                 await File.WriteAllTextAsync(filePath, json, System.Text.Encoding.UTF8);
-
-                _logger?.LogInfo($"💾 Saved payload: {filePath}");
+                _logger?.LogInfo($"💾 Saved payload [{statusFolder}]: {filePath}");
             }
             catch (Exception ex)
             {
-                // ไม่ให้ error นี้หยุดการส่ง API
                 _logger?.LogWarning($"⚠️ Could not save payload file: {ex.Message}");
             }
         }

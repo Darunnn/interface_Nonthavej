@@ -232,7 +232,7 @@ namespace interface_Nonthavej.Utils
 
                 CleanOldLogFiles(_logFolder);
                 CleanOldLogFolders(Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? Environment.CurrentDirectory, "Connection"));
-
+                CleanOldPayloadFolders(retentionDays: 10);
                 LogInfo("Log cleanup completed");
             }
             catch (Exception ex)
@@ -240,7 +240,57 @@ namespace interface_Nonthavej.Utils
                 LogError("Error in CleanOldLogs", ex);
             }
         }
+        public void CleanOldPayloadFolders(int retentionDays = 10)
+        {
+            try
+            {
+                var appFolder = AppDomain.CurrentDomain.BaseDirectory ?? Environment.CurrentDirectory;
+                var payloadBase = Path.Combine(appFolder, "Payload");
 
+                if (!Directory.Exists(payloadBase))
+                    return;
+
+                var cutoffDate = DateTime.Now.AddDays(-retentionDays);
+                var directories = Directory.GetDirectories(payloadBase);
+
+                LogInfo($"🧹 Cleaning Payload folders older than {retentionDays} days (cutoff: {cutoffDate:yyyy-MM-dd})");
+
+                int deleted = 0;
+                int failed = 0;
+
+                foreach (var dir in directories)
+                {
+                    var folderName = Path.GetFileName(dir); // รูปแบบ yyyyMMdd
+
+                    if (DateTime.TryParseExact(folderName, "yyyyMMdd",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None,
+                        out DateTime folderDate))
+                    {
+                        if (folderDate < cutoffDate)
+                        {
+                            try
+                            {
+                                Directory.Delete(dir, recursive: true);
+                                LogInfo($"🗑️ Deleted Payload folder: {folderName}");
+                                deleted++;
+                            }
+                            catch (Exception ex)
+                            {
+                                LogWarning($"⚠️ Failed to delete Payload folder {folderName}: {ex.Message}");
+                                failed++;
+                            }
+                        }
+                    }
+                }
+
+                LogInfo($"✅ Payload cleanup done | Deleted: {deleted} | Failed: {failed}");
+            }
+            catch (Exception ex)
+            {
+                LogError("❌ Error cleaning Payload folders", ex);
+            }
+        }
         private void CleanOldLogFiles(string logFolder)
         {
             try
