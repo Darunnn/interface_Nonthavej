@@ -25,14 +25,16 @@ namespace interface_Nonthavej.Services
         private readonly int _apiTimeoutSeconds;
         private bool _disposed = false;
 
+        // ✅ FIX ROOT CAUSE #1: เปลี่ยน Never → WhenWritingNull
+        // Never  = ส่ง null ไปใน JSON → JS ฝั่ง API รับ null แล้วทำ null.length → crash 500
+        // WhenWritingNull = field ที่เป็น null จะไม่ถูกใส่ใน JSON เลย → API ปลอดภัย
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = null,
             WriteIndented = false,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         };
-
 
         public DataService(
             string connectionString,
@@ -60,106 +62,139 @@ namespace interface_Nonthavej.Services
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
+        // ✅ NEW: SafeRead — อ่าน column จาก reader อย่างปลอดภัย
+        // ป้องกัน IndexOutOfRangeException เมื่อ column ไม่มีใน result set
+        private string SafeRead(IDataReader reader, string columnName)
+        {
+            try
+            {
+                int ordinal = reader.GetOrdinal(columnName);
+                if (reader.IsDBNull(ordinal)) return null;
+                return reader.GetValue(ordinal)?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private PrescriptionBodyRequest BuildPrescriptionBody(IDataReader reader)
         {
             try
             {
-                var seq = reader["f_seq"]?.ToString();
-                var prescriptionDate = reader["f_lastmodified"]?.ToString();
+                // ✅ FIX #2: ใช้ SafeRead ทุกจุดเพื่อป้องกัน IndexOutOfRangeException
+                var seq = SafeRead(reader, "f_seq");
+                var prescriptionNo = SafeRead(reader, "f_prescriptionno");
+                var prescriptionDate = SafeRead(reader, "f_lastmodified");
+                var ordercreateDate = SafeRead(reader, "f_ordercreatedate");
+                var ordertargetDate = SafeRead(reader, "f_ordertargetdate");
+                var orderacceptDate = SafeRead(reader, "f_orderacceptdate");
+                var patientdob = SafeRead(reader, "f_patientdob");
+                var itemlotExpire = SafeRead(reader, "f_itemlotexpire");
+                var ordertargetTimeRaw = SafeRead(reader, "f_ordertargettime");
+                var prnValue = SafeRead(reader, "f_PRN");
+                var sexRaw = SafeRead(reader, "f_sex");
+
                 var prescriptionDateFormatted = ExtractDate(prescriptionDate);
-                var ordercreateDate = reader["f_ordercreatedate"]?.ToString();
-                var ordertargetDate = reader["f_ordertargetdate"]?.ToString();
-                var orderacceptDate = reader["f_orderacceptdate"]?.ToString();
-                var patientdob = reader["f_patientdob"]?.ToString();
-                var itemlotExpire = reader["f_itemlotexpire"]?.ToString();
                 var ordercreateDateFormatted = ExtractDatenull(ordercreateDate);
                 var ordertargetDateFormatted = ExtractDate2(ordertargetDate);
                 var orderacceptDateFormatted = ExtractDatenull(orderacceptDate);
                 var patientdobFormatted = ExtractDate2(patientdob);
                 var itemlotExpireFormatted = ExtractDate2(itemlotExpire);
-                var sex = ProcessSex(reader["f_sex"]?.ToString());
-                var prnValue = reader["f_PRN"]?.ToString();
+                var sex = ProcessSex(sexRaw);
                 var prn = ProcessPRN(prnValue, 1);
                 var stat = ProcessPRN(prnValue, 2);
 
+                // ✅ FIX #3: UniqID ต้องไม่เป็น null ใช้ ?? "" แทน ToNull
+                var uniqId = $"{prescriptionNo?.Trim() ?? ""}{seq?.Trim() ?? ""}";
+
+                // ✅ FIX #4: f_ordertargettime — parse อย่างปลอดภัย แยก null check ออกมาชัดเจน
+                string ordertargetTimeFormatted = null;
+                if (!string.IsNullOrWhiteSpace(ordertargetTimeRaw) &&
+                    DateTime.TryParse(ordertargetTimeRaw, out var parsedTime))
+                {
+                    ordertargetTimeFormatted = parsedTime.ToString("HH:mm");
+                }
+
                 return new PrescriptionBodyRequest
                 {
-                    UniqID = $"{ToNull(reader["f_prescriptionno"]?.ToString())}{ToNull(reader["f_seq"]?.ToString())}",
-                    f_prescriptionno = ToNull(reader["f_prescriptionno"]?.ToString()),
-                    f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : null,
-                    f_seqmax = decimal.TryParse(reader["f_seqmax"]?.ToString(), out decimal seqmax) ? seqmax : null,
+                    UniqID = uniqId,
+                    f_prescriptionno = ToNull(prescriptionNo),
+                    f_seq = decimal.TryParse(seq, out decimal seqVal) ? seqVal : (decimal?)null,
+                    f_seqmax = decimal.TryParse(SafeRead(reader, "f_seqmax"), out decimal seqmax) ? seqmax : (decimal?)null,
                     f_prescriptiondate = ToNull(prescriptionDateFormatted),
                     f_ordercreatedate = ordercreateDateFormatted,
                     f_ordertargetdate = ToNull(ordertargetDateFormatted),
-                    f_ordertargettime = DateTime.TryParse(reader["f_ordertargettime"]?.ToString(), out var dt)
-                                        ? dt.ToString("HH:mm")
-                                        : null,
-                    f_doctorcode = ToNull(reader["f_doctorcode"]?.ToString()),
-                    f_doctorname = ToNull(reader["f_doctorname"]?.ToString()),
-                    f_useracceptby = ToNull(reader["f_useracceptby"]?.ToString()),
+                    f_ordertargettime = ordertargetTimeFormatted,
+                    f_doctorcode = ToNull(SafeRead(reader, "f_doctorcode")),
+                    f_doctorname = ToNull(SafeRead(reader, "f_doctorname")),
+                    f_useracceptby = ToNull(SafeRead(reader, "f_useracceptby")),
                     f_orderacceptdate = orderacceptDateFormatted,
-                    f_orderacceptfromip = ToNull(reader["f_orderacceptfromip"]?.ToString()),
-                    f_pharmacylocationcode = ToNull(reader["f_pharmacylocationcode"]?.ToString()),
-                    f_pharmacylocationdesc = ToNull(reader["f_pharmacylocationdesc"]?.ToString()),
-                    f_prioritycode = ToNull(reader["f_prioritycode"]?.ToString()),
-                    f_prioritydesc = ToNull(reader["f_prioritydesc"]?.ToString()),
-                    f_hn = ToNull(reader["f_hn"]?.ToString()),
-                    f_an = ToNull(reader["f_en"]?.ToString()),
+                    f_orderacceptfromip = ToNull(SafeRead(reader, "f_orderacceptfromip")),
+                    f_pharmacylocationcode = ToNull(SafeRead(reader, "f_pharmacylocationcode")),
+                    f_pharmacylocationdesc = ToNull(SafeRead(reader, "f_pharmacylocationdesc")),
+                    f_prioritycode = ToNull(SafeRead(reader, "f_prioritycode")),
+                    f_prioritydesc = ToNull(SafeRead(reader, "f_prioritydesc")),
+                    f_hn = ToNull(SafeRead(reader, "f_hn")),
+                    f_an = ToNull(SafeRead(reader, "f_en")),
                     f_vn = null,
                     f_title = null,
-                    f_patientname = ToNull(reader["f_patientname"]?.ToString()),
+                    f_patientname = ToNull(SafeRead(reader, "f_patientname")),
                     f_sex = ToNull(sex),
                     f_patientdob = ToNull(patientdobFormatted),
-                    f_wardcode = ToNull(reader["f_wardcode"]?.ToString()),
-                    f_warddesc = ToNull(reader["f_warddesc"]?.ToString()),
-                    f_roomcode = ToNull(reader["f_roomcode"]?.ToString()),
-                    f_roomdesc = ToNull(reader["f_roomdesc"]?.ToString()),
+                    f_wardcode = ToNull(SafeRead(reader, "f_wardcode")),
+                    f_warddesc = ToNull(SafeRead(reader, "f_warddesc")),
+                    f_roomcode = ToNull(SafeRead(reader, "f_roomcode")),
+                    f_roomdesc = ToNull(SafeRead(reader, "f_roomdesc")),
                     f_bedcode = null,
                     f_beddesc = null,
                     f_right = null,
                     f_drugallergy = null,
                     f_diagnosis = null,
-                    f_orderitemcode = ToNull(reader["f_orderitemcode"]?.ToString()),
-                    f_orderitemname = ToNull(reader["f_orderitemname"]?.ToString()),
-                    f_orderitemnameTH = ToNull(reader["f_Thai_Name"]?.ToString()),
-                    f_orderitemnamegeneric = ToNull(reader["f_orderitemgenericname"]?.ToString()),
-                    f_orderqty = decimal.TryParse(reader["f_orderqty"]?.ToString(), out decimal qty) ? qty : null,
-                    f_orderunitcode = ToNull(reader["f_orderunitcode"]?.ToString()),
-                    f_orderunitdesc = ToNull(reader["f_orderunitdesc"]?.ToString()),
-                    f_dosage = ToNull(reader["f_dosage"]?.ToString()),
-                    f_dosageunit = ToNull(reader["f_dosageunit"]?.ToString()),
+                    f_orderitemcode = ToNull(SafeRead(reader, "f_orderitemcode")),
+                    f_orderitemname = ToNull(SafeRead(reader, "f_orderitemname")),
+                    f_orderitemnameTH = ToNull(SafeRead(reader, "f_Thai_Name")),
+                    f_orderitemnamegeneric = ToNull(SafeRead(reader, "f_orderitemgenericname")),
+                    f_orderqty = decimal.TryParse(SafeRead(reader, "f_orderqty"), out decimal qty) ? qty : (decimal?)null,
+                    f_orderunitcode = ToNull(SafeRead(reader, "f_orderunitcode")),
+                    f_orderunitdesc = ToNull(SafeRead(reader, "f_orderunitdesc")),
+                    f_dosage = ToNull(SafeRead(reader, "f_dosage")),
+                    f_dosageunit = ToNull(SafeRead(reader, "f_dosageunit")),
                     f_dosagetext = null,
                     f_drugformcode = null,
                     f_drugformdesc = null,
-                    f_HAD = ToNull(reader["f_heighAlertDrug"]?.ToString()) ?? "0",
-                    f_narcoticFlg = ToNull(reader["f_narcoticDrug"]?.ToString()) ?? "0",
-                    f_psychotropic = ToNull(reader["f_psychotropicDrug"]?.ToString()) ?? "0",
+                    // ✅ FIX #5: field เหล่านี้ต้องไม่เป็น null เด็ดขาด
+                    // API ฝั่ง Node.js อ่าน .length บน field เหล่านี้ → null.length = crash
+                    f_HAD = ToNull(SafeRead(reader, "f_heighAlertDrug")) ?? "0",
+                    f_narcoticFlg = ToNull(SafeRead(reader, "f_narcoticDrug")) ?? "0",
+                    f_psychotropic = ToNull(SafeRead(reader, "f_psychotropicDrug")) ?? "0",
                     f_binlocation = null,
                     f_itemidentify = null,
-                    f_itemlotno = ToNull(reader["f_itemlotcode"]?.ToString()),
+                    f_itemlotno = ToNull(SafeRead(reader, "f_itemlotcode")),
                     f_itemlotexpire = ToNull(itemlotExpireFormatted),
-                    f_instructioncode = ToNull(reader["f_instructioncode"]?.ToString()),
-                    f_instructiondesc = ToNull(reader["f_instructiondesc"]?.ToString()),
-                    f_frequencycode = ToNull(reader["f_frequencycode"]?.ToString()),
-                    f_frequencydesc = ToNull(reader["f_frequencydesc"]?.ToString()),
+                    f_instructioncode = ToNull(SafeRead(reader, "f_instructioncode")),
+                    f_instructiondesc = ToNull(SafeRead(reader, "f_instructiondesc")),
+                    f_frequencycode = ToNull(SafeRead(reader, "f_frequencycode")),
+                    f_frequencydesc = ToNull(SafeRead(reader, "f_frequencydesc")),
                     f_timecode = null,
                     f_timedesc = null,
-                    f_frequencytime = ToNull(reader["f_frequencyTime"]?.ToString()),
-                    f_dosagedispense = ToNull(reader["f_dosagedispense"]?.ToString()),
+                    f_frequencytime = ToNull(SafeRead(reader, "f_frequencyTime")),
+                    f_dosagedispense = ToNull(SafeRead(reader, "f_dosagedispense")),
                     f_dayofweek = null,
-                    f_noteprocessing = ToNull(reader["f_freetext1"]?.ToString()),
-                    f_prn = ToNull(prn),
-                    f_stat = ToNull(stat),
-                    f_comment = ToNull(reader["f_comment"]?.ToString()),
-                    f_tomachineno = ToNull(reader["f_tomachineno"]?.ToString()),
+                    f_noteprocessing = ToNull(SafeRead(reader, "f_freetext1")),
+                    // ✅ FIX #6: f_prn, f_stat ต้องไม่เป็น null
+                    f_prn = prn ?? "0",
+                    f_stat = stat ?? "0",
+                    f_comment = ToNull(SafeRead(reader, "f_comment")),
+                    f_tomachineno = ToNull(SafeRead(reader, "f_tomachineno")),
                     f_ipd_order_recordno = null,
-                    f_status = ToNull(reader["f_status"]?.ToString()),
-                    f_remark = ToNull(reader["f_aux_local_memo"]?.ToString()),
-                    f_labeltext = ToNull(reader["f_aux_label_memo"]?.ToString()),
-                    f_ipdpt_record_no = ToNull(reader["f_ipdpt_record_no"]?.ToString()),
-                    f_qr_code = ToNull(reader["f_QR_Code"]?.ToString()),
-                    f_barcode_ref = ToNull(reader["f_BarCodeRef"]?.ToString()),
-                    f_bagspecialdrug = ToNull(reader["f_bagspecialdrug"]?.ToString())
+                    f_status = ToNull(SafeRead(reader, "f_status")),
+                    f_remark = ToNull(SafeRead(reader, "f_aux_local_memo")),
+                    f_labeltext = ToNull(SafeRead(reader, "f_aux_label_memo")),
+                    f_ipdpt_record_no = ToNull(SafeRead(reader, "f_ipdpt_record_no")),
+                    f_qr_code = ToNull(SafeRead(reader, "f_QR_Code")),
+                    f_barcode_ref = ToNull(SafeRead(reader, "f_BarCodeRef")),
+                    f_bagspecialdrug = ToNull(SafeRead(reader, "f_bagspecialdrug"))
                 };
             }
             catch (Exception ex)
@@ -184,7 +219,7 @@ namespace interface_Nonthavej.Services
                 return (0, 0, errors);
             }
 
-            string query = $@"
+            string query = @"
                 SELECT TOP (@BatchSize)
                    [f_prescriptionno],[f_seq],[f_seqmax],[f_prescriptionnodate],
                    [f_prioritycode],[f_prioritydesc],[f_durationcode],[f_durationdesc],
@@ -217,11 +252,9 @@ namespace interface_Nonthavej.Services
                 ORDER BY f_orderacceptdate";
 
             SqlConnection connection = null;
-
             try
             {
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
-
                 using (var command = new SqlCommand(query, connection))
                 {
                     command.Parameters.AddWithValue("@CurrentDate", currentDate);
@@ -241,9 +274,9 @@ namespace interface_Nonthavej.Services
 
                             try
                             {
-                                seq = reader["f_seq"]?.ToString();
-                                prescriptionNo = reader["f_prescriptionno"]?.ToString();
-                                var prescriptionDate = reader["f_lastmodified"]?.ToString();
+                                seq = SafeRead(reader, "f_seq") ?? "";
+                                prescriptionNo = SafeRead(reader, "f_prescriptionno") ?? "";
+                                var prescriptionDate = SafeRead(reader, "f_lastmodified") ?? "";
                                 prescriptionDateFormatted = ExtractDate(prescriptionDate);
 
                                 if (string.IsNullOrEmpty(prescriptionNo))
@@ -252,7 +285,6 @@ namespace interface_Nonthavej.Services
                                     continue;
                                 }
 
-                                // R-prefix: ข้าม API อัพ status 1 เลย
                                 if (prescriptionNo.StartsWith("R", StringComparison.OrdinalIgnoreCase))
                                 {
                                     _logger?.LogInfo($"⏭️ Skip API (R-prefix) - Rx: {prescriptionNo}, Seq: {seq}");
@@ -267,9 +299,10 @@ namespace interface_Nonthavej.Services
                                     continue;
                                 }
 
-                                // ส่ง API ทีละ record
                                 var prescriptionBody = BuildPrescriptionBody(reader);
-                                bool sent = await SendSingleToApiAsync(prescriptionBody, seq, prescriptionNo, prescriptionDateFormatted, cancellationToken);
+                                bool sent = await SendSingleToApiAsync(
+                                    prescriptionBody, seq, prescriptionNo,
+                                    prescriptionDateFormatted, cancellationToken);
 
                                 if (sent) successCount++;
                                 else failedCount++;
@@ -279,14 +312,16 @@ namespace interface_Nonthavej.Services
                                 failedCount++;
                                 _logger?.LogError($"❌ Row Error - Rx: {prescriptionNo}", ex);
 
-                                if (!string.IsNullOrEmpty(seq) && !string.IsNullOrEmpty(prescriptionNo) && !string.IsNullOrEmpty(prescriptionDateFormatted))
+                                if (!string.IsNullOrEmpty(seq) &&
+                                    !string.IsNullOrEmpty(prescriptionNo) &&
+                                    !string.IsNullOrEmpty(prescriptionDateFormatted))
                                 {
-                                    await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDateFormatted, "3", cancellationToken);
+                                    await UpdateDispenseStatusAsync(
+                                        seq, prescriptionNo, prescriptionDateFormatted, "3", cancellationToken);
                                 }
                             }
                         }
 
-                        // flush R-prefix ที่เหลือ
                         if (skipApiBatchInfo.Count > 0)
                         {
                             _logger?.LogInfo($"⏭️ Updating {skipApiBatchInfo.Count} R-prefix records (no API call)");
@@ -312,26 +347,30 @@ namespace interface_Nonthavej.Services
             }
             finally
             {
-                if (connection != null)
-                    _connectionPool.ReleaseConnection(connection);
+                if (connection != null) _connectionPool.ReleaseConnection(connection);
             }
 
             return (successCount, failedCount, errors);
         }
 
-        /// <summary>
-        /// ส่ง API ทีละ 1 record — ไม่ผ่านอัพ status 3 ทันที
-        /// </summary>
         private async Task<bool> SendSingleToApiAsync(
-     PrescriptionBodyRequest prescription,
-     string seq,
-     string prescriptionNo,
-     string prescriptionDate,
-     CancellationToken cancellationToken = default)
+            PrescriptionBodyRequest prescription,
+            string seq,
+            string prescriptionNo,
+            string prescriptionDate,
+            CancellationToken cancellationToken = default)
         {
-            // ✅ ส่ง object เดี่ยวโดยตรง ไม่ห่อ array
+            if (prescription == null)
+            {
+                _logger?.LogError($"❌ Null prescription - Rx: {prescriptionNo}, Seq: {seq}");
+                await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
+                return false;
+            }
+
             var json = JsonSerializer.Serialize(prescription, _jsonOptions);
 
+            // ✅ DEBUG: log JSON 500 ตัวอักษรแรก เพื่อตรวจสอบ null field ที่ส่งไป
+            _logger?.LogInfo($"📦 Payload Rx:{prescriptionNo} Seq:{seq}: {json}");
             _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
 
             var stopwatch = Stopwatch.StartNew();
@@ -341,17 +380,20 @@ namespace interface_Nonthavej.Services
                 var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
                 stopwatch.Stop();
 
+                // ✅ FIX #7: ป้องกัน null จาก ReadAsStringAsync
+                var responseContent = await response.Content.ReadAsStringAsync() ?? "";
+
                 if (response.IsSuccessStatusCode)
                 {
-                    var responseContent = await response.Content.ReadAsStringAsync();
                     _logger?.LogInfo($"✅ Success | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms - {responseContent}");
                     await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "1", cancellationToken);
                     return true;
                 }
                 else
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
+                    // ✅ FIX #8: ใช้ range operator แทน Substring() + null guard
+                    var preview = responseContent.Length > 500 ? responseContent[..500] : responseContent;
+                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {preview}");
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -359,13 +401,17 @@ namespace interface_Nonthavej.Services
                 stopwatch.Stop();
                 _logger?.LogWarning($"⏱️ TIMEOUT | Rx: {prescriptionNo}, Seq: {seq} | {stopwatch.ElapsedMilliseconds}ms | Limit: {_apiTimeoutSeconds}s");
             }
+            catch (HttpRequestException ex)
+            {
+                stopwatch.Stop();
+                _logger?.LogError($"❌ Network Error | Rx: {prescriptionNo}, Seq: {seq} | {ex.Message}", ex);
+            }
             catch (Exception ex)
             {
                 stopwatch.Stop();
                 _logger?.LogError($"❌ Send Exception | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms", ex);
             }
 
-            // ไม่ผ่าน → อัพ status 3 ทันที
             _logger?.LogError($"❌ Send failed | Rx: {prescriptionNo}, Seq: {seq} → status '3'");
             await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
             return false;
@@ -376,21 +422,26 @@ namespace interface_Nonthavej.Services
             string status,
             CancellationToken cancellationToken = default)
         {
-            if (batchInfo == null || batchInfo.Count == 0)
-                return;
+            if (batchInfo == null || batchInfo.Count == 0) return;
 
             SqlConnection connection = null;
-
             try
             {
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
-
                 using (var transaction = connection.BeginTransaction())
                 {
                     try
                     {
                         foreach (var (seq, prescriptionNo, prescriptionDate) in batchInfo)
                         {
+                            if (string.IsNullOrEmpty(seq) ||
+                                string.IsNullOrEmpty(prescriptionNo) ||
+                                string.IsNullOrEmpty(prescriptionDate))
+                            {
+                                _logger?.LogWarning($"⚠️ Skip invalid batch key seq={seq}, rx={prescriptionNo}");
+                                continue;
+                            }
+
                             string updateQuery = @"
                                 UPDATE tb_thaneshosp_middle
                                 SET f_dispensestatus = @Status  
@@ -415,25 +466,27 @@ namespace interface_Nonthavej.Services
                     catch (Exception ex)
                     {
                         await transaction.RollbackAsync(cancellationToken);
-                        _logger?.LogError($"❌ Transaction rollback", ex);
+                        _logger?.LogError("❌ Transaction rollback", ex);
                         throw;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogError($"❌ Batch Update Error", ex);
+                _logger?.LogError("❌ Batch Update Error", ex);
             }
             finally
             {
-                if (connection != null)
-                    _connectionPool.ReleaseConnection(connection);
+                if (connection != null) _connectionPool.ReleaseConnection(connection);
             }
         }
 
-        private async Task UpdateDispenseStatusAsync(string seq, string prescriptionNo, string prescriptionDate, string status, CancellationToken cancellationToken = default)
+        private async Task UpdateDispenseStatusAsync(
+            string seq, string prescriptionNo, string prescriptionDate,
+            string status, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(seq) || string.IsNullOrEmpty(prescriptionNo) || string.IsNullOrEmpty(prescriptionDate))
+            if (string.IsNullOrEmpty(seq) || string.IsNullOrEmpty(prescriptionNo) ||
+                string.IsNullOrEmpty(prescriptionDate) || string.IsNullOrEmpty(status))
                 return;
 
             string query = @"
@@ -444,11 +497,9 @@ namespace interface_Nonthavej.Services
                   AND Convert(varchar(10), f_lastmodified, 112) = @Lastmodified";
 
             SqlConnection connection = null;
-
             try
             {
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
-
                 using (var cmd = new SqlCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@Status", status);
@@ -458,25 +509,25 @@ namespace interface_Nonthavej.Services
                     cmd.CommandTimeout = 10;
 
                     int affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
-
                     if (affected > 0)
-                        _logger?.LogInfo($"✅ Updated Seq:{seq}, Rx:{prescriptionNo} to status '{status}'");
+                        _logger?.LogInfo($"✅ Updated Seq:{seq}, Rx:{prescriptionNo} → status '{status}'");
                     else
-                        _logger?.LogWarning($"⚠️ No record updated for Seq:{seq}, Rx:{prescriptionNo}");
+                        _logger?.LogWarning($"⚠️ No record updated Seq:{seq}, Rx:{prescriptionNo}");
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogError($"❌ Update Error - Seq:{seq}, Rx={prescriptionNo}", ex);
+                _logger?.LogError($"❌ Update Error Seq:{seq}, Rx={prescriptionNo}", ex);
             }
             finally
             {
-                if (connection != null)
-                    _connectionPool.ReleaseConnection(connection);
+                if (connection != null) _connectionPool.ReleaseConnection(connection);
             }
         }
 
-        public async Task<List<GridViewDataModel>> GetPrescriptionDataAsync(string date = "", string searchText = "", CancellationToken cancellationToken = default)
+        public async Task<List<GridViewDataModel>> GetPrescriptionDataAsync(
+            string date = "", string searchText = "",
+            CancellationToken cancellationToken = default)
         {
             var dataList = new List<GridViewDataModel>();
             string queryDate = string.IsNullOrEmpty(date)
@@ -484,7 +535,7 @@ namespace interface_Nonthavej.Services
                 : date.Replace("-", "");
             bool hasSearchText = !string.IsNullOrWhiteSpace(searchText);
 
-            string query = $@"
+            string query = @"
                 SELECT 
                     f_prescriptionno, f_seq, f_seqmax, f_prescriptionnodate,
                     f_patientname, f_hn, f_orderitemname, f_orderqty,
@@ -494,16 +545,14 @@ namespace interface_Nonthavej.Services
                   AND f_dispensestatus IN ('1', '3')";
 
             if (hasSearchText)
-                query += @" AND (f_hn LIKE @SearchText OR f_prescriptionno LIKE @SearchText)";
+                query += " AND (f_hn LIKE @SearchText OR f_prescriptionno LIKE @SearchText)";
 
-            query += @" ORDER BY f_prescriptionno, f_seq";
+            query += " ORDER BY f_prescriptionno, f_seq";
 
             SqlConnection connection = null;
-
             try
             {
                 connection = await _connectionPool.GetConnectionAsync(cancellationToken);
-
                 using (var cmd = new SqlCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@QueryDate", queryDate);
@@ -519,18 +568,18 @@ namespace interface_Nonthavej.Services
                             {
                                 dataList.Add(new GridViewDataModel
                                 {
-                                    PrescriptionNo = reader["f_prescriptionno"]?.ToString() ?? "",
-                                    Seq = reader["f_seq"]?.ToString() ?? "",
-                                    SeqMax = reader["f_seqmax"]?.ToString() ?? "",
-                                    Prescriptiondate = reader["f_prescriptionnodate"]?.ToString() ?? "",
-                                    PatientName = reader["f_patientname"]?.ToString() ?? "",
-                                    HN = reader["f_hn"]?.ToString() ?? "",
-                                    ItemName = reader["f_orderitemname"]?.ToString() ?? "",
-                                    OrderQty = reader["f_orderqty"]?.ToString() ?? "",
-                                    OrderUnit = reader["f_orderunitdesc"]?.ToString() ?? "",
-                                    Dosage = reader["f_dosagedispense"]?.ToString() ?? "",
-                                    Status = reader["f_dispensestatus"]?.ToString() ?? "",
-                                    Lastmodified = reader["f_lastmodified"]?.ToString() ?? "",
+                                    PrescriptionNo = SafeRead(reader, "f_prescriptionno") ?? "",
+                                    Seq = SafeRead(reader, "f_seq") ?? "",
+                                    SeqMax = SafeRead(reader, "f_seqmax") ?? "",
+                                    Prescriptiondate = SafeRead(reader, "f_prescriptionnodate") ?? "",
+                                    PatientName = SafeRead(reader, "f_patientname") ?? "",
+                                    HN = SafeRead(reader, "f_hn") ?? "",
+                                    ItemName = SafeRead(reader, "f_orderitemname") ?? "",
+                                    OrderQty = SafeRead(reader, "f_orderqty") ?? "",
+                                    OrderUnit = SafeRead(reader, "f_orderunitdesc") ?? "",
+                                    Dosage = SafeRead(reader, "f_dosagedispense") ?? "",
+                                    Status = SafeRead(reader, "f_dispensestatus") ?? "",
+                                    Lastmodified = SafeRead(reader, "f_lastmodified") ?? "",
                                 });
                             }
                             catch (Exception ex)
@@ -547,8 +596,7 @@ namespace interface_Nonthavej.Services
             }
             finally
             {
-                if (connection != null)
-                    _connectionPool.ReleaseConnection(connection);
+                if (connection != null) _connectionPool.ReleaseConnection(connection);
             }
 
             return dataList;
@@ -559,9 +607,7 @@ namespace interface_Nonthavej.Services
             CancellationToken cancellationToken = default)
         {
             var dataList = new List<PrescriptionBodyRequest>();
-
-            if (prescriptions == null || prescriptions.Count == 0)
-                return dataList;
+            if (prescriptions == null || prescriptions.Count == 0) return dataList;
 
             string query = @"
                 SELECT * FROM tb_thaneshosp_middle
@@ -571,11 +617,13 @@ namespace interface_Nonthavej.Services
 
             foreach (var (prescriptionNo, prescriptionDate) in prescriptions)
             {
+                if (string.IsNullOrEmpty(prescriptionNo) || string.IsNullOrEmpty(prescriptionDate))
+                    continue;
+
                 SqlConnection connection = null;
                 try
                 {
                     connection = await _connectionPool.GetConnectionAsync(cancellationToken);
-
                     using (var cmd = new SqlCommand(query, connection))
                     {
                         cmd.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
@@ -587,7 +635,7 @@ namespace interface_Nonthavej.Services
                             while (await reader.ReadAsync(cancellationToken))
                             {
                                 try { dataList.Add(BuildPrescriptionBody(reader)); }
-                                catch (Exception ex) { _logger?.LogError($"Error parsing row for Rx={prescriptionNo}", ex); }
+                                catch (Exception ex) { _logger?.LogError($"Error parsing row Rx={prescriptionNo}", ex); }
                             }
                         }
                     }
@@ -598,8 +646,7 @@ namespace interface_Nonthavej.Services
                 }
                 finally
                 {
-                    if (connection != null)
-                        _connectionPool.ReleaseConnection(connection);
+                    if (connection != null) _connectionPool.ReleaseConnection(connection);
                 }
             }
 
@@ -612,33 +659,37 @@ namespace interface_Nonthavej.Services
         public void ResetCircuitBreaker()
             => _connectionPool.ResetCircuitBreaker();
 
+        // ─────────────── Date Helpers ───────────────
+
         private string ExtractDate(string dateStr)
         {
-            if (string.IsNullOrEmpty(dateStr)) return "";
+            if (string.IsNullOrWhiteSpace(dateStr)) return "";
             return DateTime.TryParse(dateStr, out DateTime d) ? d.ToString("yyyyMMdd") : "";
         }
 
         public static string ExtractDate2(string dateStr)
         {
-            if (string.IsNullOrEmpty(dateStr)) return "";
+            if (string.IsNullOrWhiteSpace(dateStr)) return "";
             return DateTime.TryParse(dateStr, out DateTime d) ? d.ToString("yyyy-MM-dd") : "";
         }
 
         public static string ExtractDatenull(string dateStr)
         {
-            if (string.IsNullOrEmpty(dateStr)) return DateTime.Now.ToString("yyyy-MM-dd");
-            return DateTime.TryParse(dateStr, out DateTime d) ? d.ToString("yyyy-MM-dd") : "";
+            if (string.IsNullOrWhiteSpace(dateStr)) return DateTime.Now.ToString("yyyy-MM-dd");
+            return DateTime.TryParse(dateStr, out DateTime d)
+                ? d.ToString("yyyy-MM-dd")
+                : DateTime.Now.ToString("yyyy-MM-dd");
         }
 
         private string ProcessSex(string sex)
         {
-            if (string.IsNullOrEmpty(sex)) return "U";
-            return sex switch { "1" => "F", "2" => "M", _ => "U" };
+            if (string.IsNullOrWhiteSpace(sex)) return "U";
+            return sex.Trim() switch { "1" => "F", "2" => "M", _ => "U" };
         }
 
         private string ProcessPRN(string prnValue, int type)
         {
-            if (string.IsNullOrEmpty(prnValue) || !int.TryParse(prnValue, out int value))
+            if (string.IsNullOrWhiteSpace(prnValue) || !int.TryParse(prnValue.Trim(), out int value))
                 return "0";
             return (type == 1 && value == 1) || (type == 2 && value == 2) ? "1" : "0";
         }
