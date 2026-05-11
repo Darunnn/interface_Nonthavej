@@ -33,7 +33,7 @@ namespace interface_Nonthavej.Services
             PropertyNamingPolicy = null,
             WriteIndented = false,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         };
 
         public DataService(
@@ -369,13 +369,13 @@ namespace interface_Nonthavej.Services
 
             var json = JsonSerializer.Serialize(prescription, _jsonOptions);
 
-            
+          
             _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
             await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate);
             var stopwatch = Stopwatch.StartNew();
             try
             {
-                _logger?.LogInfo($"📦 Payload Rx:{prescriptionNo} Seq:{seq}: {json}");
+              
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
                 stopwatch.Stop();
@@ -392,8 +392,7 @@ namespace interface_Nonthavej.Services
                 else
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    var preview = responseContent.Length > 500 ? responseContent[..500] : responseContent;
-                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {preview}");
+                    _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {responseContent}");
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
