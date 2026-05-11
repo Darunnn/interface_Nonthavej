@@ -365,7 +365,7 @@ namespace interface_Nonthavej.Services
                 return false;
             }
 
-            var wrapper = new { data = prescription };
+            var wrapper = new { data = new[] { prescription } };
             var json = JsonSerializer.Serialize(wrapper, _jsonOptions);
 
             _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB)");
