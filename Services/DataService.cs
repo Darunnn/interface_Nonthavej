@@ -396,21 +396,31 @@ namespace interface_Nonthavej.Services
             {
                 stopwatch.Stop();
                 _logger?.LogWarning($"⏱️ TIMEOUT | Rx: {prescriptionNo}, Seq: {seq} | {stopwatch.ElapsedMilliseconds}ms");
+                // ✅ บันทึก error_detail = timeout
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, false,
+                    $"TIMEOUT after {stopwatch.ElapsedMilliseconds}ms");
             }
             catch (HttpRequestException ex)
             {
                 stopwatch.Stop();
                 _logger?.LogError($"❌ Network Error | Rx: {prescriptionNo}, Seq: {seq} | {ex.Message}", ex);
+                // ✅ บันทึก error_detail = network error
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, false,
+                    $"Network error: {ex.Message}");
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
                 _logger?.LogError($"❌ Send Exception | Rx: {prescriptionNo}, Seq: {seq}", ex);
+                // ✅ บันทึก error_detail = exception
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, false,
+                    $"Exception: {ex.GetType().Name} - {ex.Message}");
             }
             finally
             {
-                // ✅ Save หลังรู้ผลเสมอ ไม่ว่า success หรือ error
-                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, isSuccess);
+                // ✅ finally save เฉพาะกรณี success (error จัดการใน catch แล้ว)
+                if (isSuccess)
+                    await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, true);
             }
 
             if (!isSuccess)
@@ -709,15 +719,15 @@ namespace interface_Nonthavej.Services
             }
         }
         // เปลี่ยน signature เพิ่ม isSuccess
+        // ✅ เพิ่ม parameter errorMessage
         private async Task SavePayloadToFileAsync(
             string json, string prescriptionNo, string seq,
-            string prescriptionDate, bool isSuccess)
+            string prescriptionDate, bool isSuccess, string errorMessage = null)
         {
             try
             {
                 string baseFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Payload");
 
-                // ✅ แยก subfolder ตาม success/error
                 string statusFolder = isSuccess ? "success" : "error";
                 string dateFolder = Path.Combine(baseFolder, prescriptionDate, statusFolder);
 
@@ -729,7 +739,42 @@ namespace interface_Nonthavej.Services
                 string fileName = $"Rx_{safeRx}_Seq{seq}_{timestamp}.json";
                 string filePath = Path.Combine(dateFolder, fileName);
 
-                await File.WriteAllTextAsync(filePath, json, System.Text.Encoding.UTF8);
+                string jsonToSave = json;
+                try
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+
+                    using var stream = new System.IO.MemoryStream();
+                    using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+                    {
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                        Indented = false
+                    }))
+                    {
+                        writer.WriteStartObject();
+
+                        foreach (var prop in root.EnumerateObject())
+                            prop.WriteTo(writer);
+
+                        writer.WriteString("message", isSuccess ? "success" : "error");
+                        writer.WriteString("saved_at", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+
+                        // ✅ เพิ่ม error_detail เฉพาะตอน error เท่านั้น
+                        if (!isSuccess && !string.IsNullOrWhiteSpace(errorMessage))
+                            writer.WriteString("error_detail", errorMessage);
+
+                        writer.WriteEndObject();
+                    }
+
+                    jsonToSave = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+                }
+                catch
+                {
+                    // fallback บันทึก json เดิม
+                }
+
+                await File.WriteAllTextAsync(filePath, jsonToSave, System.Text.Encoding.UTF8);
                 _logger?.LogInfo($"💾 Saved payload [{statusFolder}]: {filePath}");
             }
             catch (Exception ex)
