@@ -51,7 +51,6 @@ namespace interface_Nonthavej
             failedCountLabel = new Label();
             groupBox1 = new GroupBox();
             groupBox2 = new GroupBox();
-            button1 = new Button();
             groupBox3 = new GroupBox();
             groupBox4 = new GroupBox();
             dataGridView = new DataGridView();
@@ -120,7 +119,6 @@ namespace interface_Nonthavej
             // 
             // startStopButton
             // 
-           
             startStopButton.FlatStyle = FlatStyle.Flat;
             startStopButton.Font = new Font("Tahoma", 9F, FontStyle.Bold);
             startStopButton.ForeColor = Color.White;
@@ -351,7 +349,6 @@ namespace interface_Nonthavej
             // groupBox2
             // 
             groupBox2.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            groupBox2.Controls.Add(button1);
             groupBox2.Controls.Add(startStopButton);
             groupBox2.Controls.Add(settingsButton);
             groupBox2.Controls.Add(exportButton);
@@ -363,16 +360,6 @@ namespace interface_Nonthavej
             groupBox2.TabIndex = 1;
             groupBox2.TabStop = false;
             groupBox2.Text = "🎮 Service Controls";
-            // 
-            // button1
-            // 
-            button1.Location = new Point(475, 23);
-            button1.Name = "button1";
-            button1.Size = new Size(101, 37);
-            button1.TabIndex = 7;
-            button1.Text = "test";
-            button1.UseVisualStyleBackColor = true;
-            button1.Click += button1_Click;
             // 
             // groupBox3
             // 
@@ -501,6 +488,5 @@ namespace interface_Nonthavej
 
         // Data Zone
         private System.Windows.Forms.DataGridView dataGridView;
-        private Button button1;
     }
 }

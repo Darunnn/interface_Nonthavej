@@ -2,7 +2,7 @@
 using interface_Nonthavej.FunctionFrom.From1;
 using interface_Nonthavej.Models;
 using interface_Nonthavej.Services;
-using interface_Nonthavej.Services.test;
+
 using interface_Nonthavej.Utils;
 using System;
 using System.Collections.Generic;
@@ -19,7 +19,7 @@ namespace interface_Nonthavej
         private AppConfig _appConfig;
         private LogManager _logger;
         private DataService _dataService;
-        private DataServicetest _dataServiceTest;
+        
 
         // Helper classes
         private Fnupdatefrom1 _uiHelper;
@@ -73,12 +73,7 @@ namespace interface_Nonthavej
                 _appConfig.MaxProcessingBatchSize,   // อ่านจาก appsettings.ini
                 _appConfig.ApiTimeoutSeconds          // อ่านจาก appsettings.ini
             );
-                    _dataServiceTest = new DataServicetest(
-           _appConfig.ConnectionString,
-           _logger,
-           _appConfig.MaxProcessingBatchSize    // อ่านจาก appsettings.ini
-       );
-                    _logger.LogInfo("DataService initialized");
+                    
                 }
                 else
                 {
@@ -709,99 +704,13 @@ namespace interface_Nonthavej
             }
 
             _dataService?.Dispose();
-            _dataServiceTest?.Dispose();
+            
 
             base.OnFormClosing(e);
         }
 
         #endregion
 
-        #region Test Button Handler
-
-        private async void button1_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                _logger?.LogInfo("🧪 Test button clicked - Starting JSON export test");
-
-                var confirmResult = MessageBox.Show(
-                    "คุณต้องการดึงข้อมูล 10 รายการแรกและ Export เป็น JSON หรือไม่?",
-                    "ยืนยันการทดสอบ",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question
-                );
-
-                if (confirmResult != DialogResult.Yes)
-                {
-                    _logger?.LogInfo("Test cancelled by user");
-                    return;
-                }
-
-                _uiHelper.UpdateStatus(statusLabel, "🧪 Testing - Processing data...");
-
-                if (_dataServiceTest == null)
-                {
-                    _logger?.LogError("DataServicetest not initialized");
-                    _uiHelper.ShowAutoClosingMessageBox(this, "Service not initialized. กรุณารีสตาร์ทโปรแกรม", "ข้อผิดพลาด");
-                    return;
-                }
-
-                var (successCount, failedCount, errors, jsonFilePath) = await _dataServiceTest.ProcessAndExportToJsonAsync();
-
-                if (!string.IsNullOrEmpty(jsonFilePath))
-                {
-                    _logger?.LogInfo($"✅ Test completed successfully");
-                    _logger?.LogInfo($"   Success: {successCount}, Failed: {failedCount}");
-                    _logger?.LogInfo($"   File saved: {jsonFilePath}");
-
-                    string fileInfo = "";
-                    if (File.Exists(jsonFilePath))
-                        fileInfo = $"\nขนาดไฟล์: {new FileInfo(jsonFilePath).Length / 1024.0:F2} KB";
-
-                    _uiHelper.ShowAutoClosingMessageBox(
-                        this,
-                        $"✅ ทดสอบสำเร็จ!\n\nจำนวนข้อมูล: {successCount} รายการ\n" +
-                        $"ข้อมูลที่ล้มเหลว: {failedCount} รายการ{fileInfo}\n\n" +
-                        $"ไฟล์ถูกบันทึกที่:\n{jsonFilePath}",
-                        "ผลการทดสอบ",
-                        5000
-                    );
-
-                    _uiHelper.UpdateStatus(statusLabel, $"✅ Test completed - {successCount} records exported");
-
-                    if (File.Exists(jsonFilePath))
-                    {
-                        var openFolderResult = MessageBox.Show(
-                            "ต้องการเปิดโฟลเดอร์ที่บันทึกไฟล์หรือไม่?",
-                            "เปิดโฟลเดอร์",
-                            MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Question
-                        );
-
-                        if (openFolderResult == DialogResult.Yes)
-                            System.Diagnostics.Process.Start("explorer.exe", Path.GetDirectoryName(jsonFilePath));
-                    }
-                }
-                else
-                {
-                    _logger?.LogError("❌ Test failed - No file was created");
-
-                    string errorMessage = "❌ การทดสอบล้มเหลว\n\n";
-                    if (errors.Count > 0)
-                        errorMessage += "ข้อผิดพลาด:\n" + string.Join("\n", errors);
-
-                    _uiHelper.ShowAutoClosingMessageBox(this, errorMessage, "ข้อผิดพลาด");
-                    _uiHelper.UpdateStatus(statusLabel, "❌ Test failed");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError("❌ Error in TestButton_Click", ex);
-                _uiHelper.UpdateStatus(statusLabel, "❌ Test error");
-                _uiHelper.ShowAutoClosingMessageBox(this, $"ข้อผิดพลาดในการทดสอบ:\n{ex.Message}", "ข้อผิดพลาด");
-            }
-        }
-
-        #endregion
+       
     }
 }

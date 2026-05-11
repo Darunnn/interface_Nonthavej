@@ -354,11 +354,11 @@ namespace interface_Nonthavej.Services
         }
 
         private async Task<bool> SendSingleToApiAsync(
-            PrescriptionBodyRequest prescription,
-            string seq,
-            string prescriptionNo,
-            string prescriptionDate,
-            CancellationToken cancellationToken = default)
+     PrescriptionBodyRequest prescription,
+     string seq,
+     string prescriptionNo,
+     string prescriptionDate,
+     CancellationToken cancellationToken = default)
         {
             if (prescription == null)
             {
@@ -367,20 +367,20 @@ namespace interface_Nonthavej.Services
                 return false;
             }
 
-            var json = JsonSerializer.Serialize(prescription, _jsonOptions);
+            // ✅ ห่อ object ก่อนส่ง API
+            var wrapper = new { data = prescription };
+            var json = JsonSerializer.Serialize(wrapper, _jsonOptions);
 
-          
             _logger?.LogInfo($"📤 Sending Rx: {prescriptionNo}, Seq: {seq} ({json.Length / 1024.0:F1} KB) | Timeout: {_apiTimeoutSeconds}s");
             await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate);
+
             var stopwatch = Stopwatch.StartNew();
             try
             {
-              
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync(_apiUrl, content, cancellationToken);
                 stopwatch.Stop();
 
-                // ✅ FIX #7: ป้องกัน null จาก ReadAsStringAsync
                 var responseContent = await response.Content.ReadAsStringAsync() ?? "";
 
                 if (response.IsSuccessStatusCode)
@@ -391,7 +391,6 @@ namespace interface_Nonthavej.Services
                 }
                 else
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync();
                     _logger?.LogWarning($"⚠️ API Error {(int)response.StatusCode} | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms : {responseContent}");
                 }
             }
