@@ -185,7 +185,7 @@ namespace interface_Nonthavej.Services
                     // ✅ FIX #6: f_prn, f_stat ต้องไม่เป็น null
                     f_prn = prn ?? "0",
                     f_stat = stat ?? "0",
-                    f_comment = ToNull(SafeRead(reader, "f_comment")),
+                    f_comment = ToNull(SafeRead(reader, "f_noteprocessing")),
                     f_tomachineno = ToNull(SafeRead(reader, "f_tomachineno")),
                     f_ipd_order_recordno = null,
                     f_status = ToNull(SafeRead(reader, "f_status")),
