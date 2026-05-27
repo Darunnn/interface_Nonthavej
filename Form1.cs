@@ -96,7 +96,7 @@ namespace interface_Nonthavej
 
                 // Connection check timer
                 _connectionCheckTimer = new System.Windows.Forms.Timer();
-                _connectionCheckTimer.Interval = 3000;
+                _connectionCheckTimer.Interval = 1000;
                 _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
                 _connectionCheckTimer.Start();
                 _logger.LogInfo("Connection check timer started");

@@ -220,7 +220,7 @@ namespace interface_Nonthavej.Services
             }
 
             string query = @"
-                SELECT TOP (@BatchSize)
+                SELECT
                    [f_prescriptionno],[f_seq],[f_seqmax],[f_prescriptionnodate],
                    [f_prioritycode],[f_prioritydesc],[f_durationcode],[f_durationdesc],
                    [f_orderitemcode],[f_orderitemname],[f_Thai_Name],[f_orderitemgenericname],
