@@ -430,7 +430,7 @@ namespace interface_Nonthavej
             MinimumSize = new Size(865, 744);
             Name = "Form1";
             StartPosition = FormStartPosition.Manual;
-            Text = "interface Nonthavej - Drug Dispense Monitor";
+            Text = "interface Nonthavej - Drug Dispense Monitor LastModified 01/06/2026";
             totalPanel.ResumeLayout(false);
             successPanel.ResumeLayout(false);
             failedPanel.ResumeLayout(false);

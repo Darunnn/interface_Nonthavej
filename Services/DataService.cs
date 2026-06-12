@@ -246,10 +246,20 @@ namespace interface_Nonthavej.Services
                    [f_bagspecialdrug],[f_opd_adminremark],[f_opd_adminstatus],
                    [f_lastmodified],[f_dosevalue],[f_language],[f_age],
                    [f_ordertype],[f_aux_label_memo],[f_aux_local_memo],[f_BarCodeRef]
-                FROM tb_thaneshosp_middle
+                FROM tb_thaneshosp_middle with(nolock)
                 WHERE f_dispensestatus='0' 
-                  AND CONVERT(varchar(10), f_lastmodified, 112) = @CurrentDate
-                ORDER BY f_orderacceptdate";
+                AND CONVERT(varchar(10), f_lastmodified, 112) = @CurrentDate
+                ORDER BY (case when f_pharmacylocationcode = 'PH2' then 1 else 2 end) asc  
+                        ,(
+                            CASE
+                                WHEN f_prescriptionno LIKE 'DPH%' THEN 1
+                                WHEN f_prescriptionno LIKE 'DC%' THEN 3
+                                WHEN f_prescriptionno LIKE 'D%' THEN 2
+                                ELSE 4
+                            END
+                         ) ASC
+                        ,f_prescriptionno ASC
+                        ,f_orderacceptdate asc ";
 
             SqlConnection connection = null;
             try
@@ -264,20 +274,27 @@ namespace interface_Nonthavej.Services
 
                     using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        var skipApiBatchInfo = new List<(string seq, string prescriptionNo, string prescriptionDate)>();
+                        var skipApiBatchInfo = new List<(string seq, string prescriptionNo, DateTime? prescriptionDate, DateTime? lastmodified)>();
 
                         while (await reader.ReadAsync(cancellationToken))
                         {
                             string seq = "";
                             string prescriptionNo = "";
-                            string prescriptionDateFormatted = "";
-
+                            //string prescriptionDateFormatted = "";
+                            DateTime? prescriptionDate = null;
+                            DateTime? lastModified = null;
+                            string stePrescriptionDate = "";
                             try
                             {
                                 seq = SafeRead(reader, "f_seq") ?? "";
                                 prescriptionNo = SafeRead(reader, "f_prescriptionno") ?? "";
-                                var prescriptionDate = SafeRead(reader, "f_lastmodified") ?? "";
-                                prescriptionDateFormatted = ExtractDate(prescriptionDate);
+                                int indexPresDate = reader.GetOrdinal("f_prescriptionnodate");
+                                prescriptionDate = reader.GetDateTime(indexPresDate);// SafeRead(reader, "f_prescriptionnodate") ?? "";
+                                int indexLastModified = reader.GetOrdinal("f_lastmodified");
+                                lastModified = reader.GetDateTime(indexLastModified);
+                                stePrescriptionDate = SafeRead(reader, "f_prescriptionnodate") ?? "";
+
+                                //prescriptionDateFormatted = ExtractDate(lastModified);
 
                                 if (string.IsNullOrEmpty(prescriptionNo))
                                 {
@@ -288,7 +305,7 @@ namespace interface_Nonthavej.Services
                                 if (prescriptionNo.StartsWith("R", StringComparison.OrdinalIgnoreCase))
                                 {
                                     _logger?.LogInfo($"⏭️ Skip API (R-prefix) - Rx: {prescriptionNo}, Seq: {seq}");
-                                    skipApiBatchInfo.Add((seq, prescriptionNo, prescriptionDateFormatted));
+                                    skipApiBatchInfo.Add((seq, prescriptionNo, prescriptionDate, lastModified));
                                     successCount++;
 
                                     if (skipApiBatchInfo.Count >= _batchSize)
@@ -302,7 +319,7 @@ namespace interface_Nonthavej.Services
                                 var prescriptionBody = BuildPrescriptionBody(reader);
                                 bool sent = await SendSingleToApiAsync(
                                     prescriptionBody, seq, prescriptionNo,
-                                    prescriptionDateFormatted, cancellationToken);
+                                    prescriptionDate, lastModified, cancellationToken);
 
                                 if (sent) successCount++;
                                 else failedCount++;
@@ -314,10 +331,11 @@ namespace interface_Nonthavej.Services
 
                                 if (!string.IsNullOrEmpty(seq) &&
                                     !string.IsNullOrEmpty(prescriptionNo) &&
-                                    !string.IsNullOrEmpty(prescriptionDateFormatted))
+                                    prescriptionDate != null &&
+                                    lastModified != null)
                                 {
                                     await UpdateDispenseStatusAsync(
-                                        seq, prescriptionNo, prescriptionDateFormatted, "3", cancellationToken);
+                                        seq, prescriptionNo, prescriptionDate, "3", lastModified, cancellationToken);
                                 }
                             }
                         }
@@ -355,13 +373,14 @@ namespace interface_Nonthavej.Services
 
         private async Task<bool> SendSingleToApiAsync(
     PrescriptionBodyRequest prescription,
-    string seq, string prescriptionNo, string prescriptionDate,
+    string seq, string prescriptionNo, DateTime? prescriptionDate,
+    DateTime? lastmodified,
     CancellationToken cancellationToken = default)
         {
             if (prescription == null)
             {
                 _logger?.LogError($"❌ Null prescription - Rx: {prescriptionNo}, Seq: {seq}");
-                await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
+                await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", lastmodified, cancellationToken);
                 return false;
             }
 
@@ -385,7 +404,7 @@ namespace interface_Nonthavej.Services
                 {
                     isSuccess = true; // ✅
                     _logger?.LogInfo($"✅ Success | Rx: {prescriptionNo}, Seq: {seq} | ⏱️ {stopwatch.ElapsedMilliseconds}ms");
-                    await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "1", cancellationToken);
+                    await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "1",lastmodified, cancellationToken);
                 }
                 else
                 {
@@ -397,7 +416,7 @@ namespace interface_Nonthavej.Services
                 stopwatch.Stop();
                 _logger?.LogWarning($"⏱️ TIMEOUT | Rx: {prescriptionNo}, Seq: {seq} | {stopwatch.ElapsedMilliseconds}ms");
                 // ✅ บันทึก error_detail = timeout
-                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, false,
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate?.ToShortDateString(), false,
                     $"TIMEOUT after {stopwatch.ElapsedMilliseconds}ms");
             }
             catch (HttpRequestException ex)
@@ -405,7 +424,7 @@ namespace interface_Nonthavej.Services
                 stopwatch.Stop();
                 _logger?.LogError($"❌ Network Error | Rx: {prescriptionNo}, Seq: {seq} | {ex.Message}", ex);
                 // ✅ บันทึก error_detail = network error
-                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, false,
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate?.ToShortDateString(), false,
                     $"Network error: {ex.Message}");
             }
             catch (Exception ex)
@@ -413,27 +432,27 @@ namespace interface_Nonthavej.Services
                 stopwatch.Stop();
                 _logger?.LogError($"❌ Send Exception | Rx: {prescriptionNo}, Seq: {seq}", ex);
                 // ✅ บันทึก error_detail = exception
-                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, false,
+                await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate?.ToShortDateString(), false,
                     $"Exception: {ex.GetType().Name} - {ex.Message}");
             }
             finally
             {
                 // ✅ finally save เฉพาะกรณี success (error จัดการใน catch แล้ว)
                 if (isSuccess)
-                    await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate, true);
+                    await SavePayloadToFileAsync(json, prescriptionNo, seq, prescriptionDate?.ToShortDateString(), true);
             }
 
             if (!isSuccess)
             {
                 _logger?.LogError($"❌ Send failed | Rx: {prescriptionNo}, Seq: {seq} → status '3'");
-                await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3", cancellationToken);
+                await UpdateDispenseStatusAsync(seq, prescriptionNo, prescriptionDate, "3",lastmodified, cancellationToken);
             }
 
             return isSuccess;
         }
 
         private async Task UpdateBatchStatusAsync(
-            List<(string seq, string prescriptionNo, string prescriptionDate)> batchInfo,
+            List<(string seq, string prescriptionNo, DateTime? prescriptionDate , DateTime? Lastmodified)> batchInfo,
             string status,
             CancellationToken cancellationToken = default)
         {
@@ -447,11 +466,12 @@ namespace interface_Nonthavej.Services
                 {
                     try
                     {
-                        foreach (var (seq, prescriptionNo, prescriptionDate) in batchInfo)
+                        foreach (var (seq, prescriptionNo, prescriptionDate, Lastmodified) in batchInfo)
                         {
                             if (string.IsNullOrEmpty(seq) ||
                                 string.IsNullOrEmpty(prescriptionNo) ||
-                                string.IsNullOrEmpty(prescriptionDate))
+                                prescriptionDate == null ||
+                                Lastmodified == null)
                             {
                                 _logger?.LogWarning($"⚠️ Skip invalid batch key seq={seq}, rx={prescriptionNo}");
                                 continue;
@@ -462,14 +482,16 @@ namespace interface_Nonthavej.Services
                                 SET f_dispensestatus = @Status  
                                 WHERE f_seq = @Seq
                                   AND f_prescriptionno = @PrescriptionNo 
-                                  AND Convert(varchar(10), f_lastmodified, 112) = @Lastmodified";
+                                  AND f_prescriptionnodate = @prescriptionDate 
+                                  AND f_lastmodified = @Lastmodified";
 
                             using (var cmd = new SqlCommand(updateQuery, connection, transaction))
                             {
                                 cmd.Parameters.AddWithValue("@Status", status);
                                 cmd.Parameters.AddWithValue("@Seq", seq);
                                 cmd.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                                cmd.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
+                                cmd.Parameters.AddWithValue("@prescriptionDate", prescriptionDate);
+                                cmd.Parameters.AddWithValue("@Lastmodified", Lastmodified);
                                 cmd.CommandTimeout = 30;
                                 await cmd.ExecuteNonQueryAsync(cancellationToken);
                             }
@@ -497,19 +519,21 @@ namespace interface_Nonthavej.Services
         }
 
         private async Task UpdateDispenseStatusAsync(
-            string seq, string prescriptionNo, string prescriptionDate,
-            string status, CancellationToken cancellationToken = default)
+            string seq, string prescriptionNo, DateTime? prescriptionDate,
+            string status, DateTime? lastmodified, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(seq) || string.IsNullOrEmpty(prescriptionNo) ||
-                string.IsNullOrEmpty(prescriptionDate) || string.IsNullOrEmpty(status))
+                prescriptionDate == null || string.IsNullOrEmpty(status) || lastmodified == null)
                 return;
 
             string query = @"
                 UPDATE tb_thaneshosp_middle 
                 SET f_dispensestatus = @Status
                 WHERE f_seq = @Seq
-                  AND f_prescriptionno = @PrescriptionNo 
-                  AND Convert(varchar(10), f_lastmodified, 112) = @Lastmodified";
+                  AND f_prescriptionno = @PrescriptionNo
+                  AND f_prescriptionnodate = @PrescriptionDate
+                  AND f_lastmodified = @Lastmodified";
+            //Convert(varchar(10), f_lastmodified, 112)
 
             SqlConnection connection = null;
             try
@@ -520,7 +544,8 @@ namespace interface_Nonthavej.Services
                     cmd.Parameters.AddWithValue("@Status", status);
                     cmd.Parameters.AddWithValue("@Seq", seq);
                     cmd.Parameters.AddWithValue("@PrescriptionNo", prescriptionNo);
-                    cmd.Parameters.AddWithValue("@Lastmodified", prescriptionDate);
+                    cmd.Parameters.AddWithValue("@Lastmodified", lastmodified);
+                    cmd.Parameters.AddWithValue("@PrescriptionDate", prescriptionDate);
                     cmd.CommandTimeout = 10;
 
                     int affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
@@ -555,7 +580,7 @@ namespace interface_Nonthavej.Services
                     f_prescriptionno, f_seq, f_seqmax, f_prescriptionnodate,
                     f_patientname, f_hn, f_orderitemname, f_orderqty,
                     f_orderunitdesc, f_dosagedispense, f_dispensestatus, f_lastmodified
-                FROM tb_thaneshosp_middle
+                FROM tb_thaneshosp_middle with(nolock)
                 WHERE CONVERT(varchar(10), f_lastmodified, 112) = @QueryDate
                   AND f_dispensestatus IN ('1', '3')";
 
