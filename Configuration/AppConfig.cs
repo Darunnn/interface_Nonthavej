@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.IO;
 
 namespace interface_Nonthavej.Configuration
@@ -14,15 +13,17 @@ namespace interface_Nonthavej.Configuration
         // Database Settings
         public string ConnectionString { get; private set; }
 
-        // API Settings
-        public string ApiEndpoint { get; private set; } // ✅ Fixed: Changed from static to instance property
-        public int ApiTimeoutSeconds { get; private set; } = 30;
+        // Pharmacy Filter — null = ALL (no WHERE clause), value = filter by code
+        public string PharmacyCode { get; private set; }
 
+        // API Settings
+        public string ApiEndpoint { get; private set; }
+        public int ApiTimeoutSeconds { get; private set; } = 30;
 
         // Processing Settings
         public int ProcessingIntervalSeconds { get; private set; } = 5;
         public int MaxProcessingBatchSize { get; private set; } = 20;
-        public bool AutoStart { get; private set; } = false; // ✅ Changed default to false for safety
+        public bool AutoStart { get; private set; } = false;
 
         public bool LoadConfiguration()
         {
@@ -49,30 +50,47 @@ namespace interface_Nonthavej.Configuration
             var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConnFolder, ConnFile);
 
             if (!File.Exists(path))
-            {
                 throw new FileNotFoundException($"Connection file not found: {path}");
-            }
 
             var lines = File.ReadAllLines(path);
             var connBuilder = new System.Text.StringBuilder();
 
+            // Reset PharmacyCode — must come from file; no code-level default
+            PharmacyCode = null;
+
             foreach (var line in lines)
             {
-                // ✅ Skip comments and empty lines
                 if (string.IsNullOrWhiteSpace(line) || line.Trim().StartsWith("#"))
                     continue;
 
-                connBuilder.Append(line.Trim());
-                if (!line.Trim().EndsWith(";"))
+                var trimmed = line.Trim();
+
+                // Parse PharmacyCode separately — not part of SQL connection string
+                if (trimmed.StartsWith("PharmacyCode=", StringComparison.OrdinalIgnoreCase))
+                {
+                    var value = trimmed
+                        .Substring("PharmacyCode=".Length)
+                        .TrimEnd(';')
+                        .Trim();
+
+                    // "ALL" or empty → null (no WHERE filter)
+                    PharmacyCode = string.IsNullOrWhiteSpace(value) ||
+                                   value.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : value;
+                    continue;
+                }
+
+                // All other lines go into the SQL connection string
+                connBuilder.Append(trimmed);
+                if (!trimmed.EndsWith(";"))
                     connBuilder.Append(";");
             }
 
             ConnectionString = connBuilder.ToString();
 
             if (string.IsNullOrWhiteSpace(ConnectionString))
-            {
                 throw new Exception("Connection string is empty after parsing");
-            }
         }
 
         private void LoadAppSettings()
@@ -80,9 +98,7 @@ namespace interface_Nonthavej.Configuration
             var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFolder, ConfigFile);
 
             if (!File.Exists(path))
-            {
                 CreateDefaultConfig(path);
-            }
 
             var lines = File.ReadAllLines(path);
 
@@ -123,7 +139,6 @@ namespace interface_Nonthavej.Configuration
             }
         }
 
-        // ✅ Added validation method
         private void ValidateConfiguration()
         {
             if (string.IsNullOrWhiteSpace(ConnectionString))
@@ -134,8 +149,6 @@ namespace interface_Nonthavej.Configuration
 
             if (ApiTimeoutSeconds <= 0)
                 throw new Exception("ApiTimeoutSeconds must be greater than 0");
-
-
 
             if (ProcessingIntervalSeconds <= 0)
                 throw new Exception("ProcessingIntervalSeconds must be greater than 0");
@@ -148,9 +161,7 @@ namespace interface_Nonthavej.Configuration
         {
             var directory = Path.GetDirectoryName(path);
             if (!Directory.Exists(directory))
-            {
                 Directory.CreateDirectory(directory);
-            }
 
             var defaultConfig = @"# ===== API SETTINGS =====
 # URL endpoint สำหรับส่งข้อมูลไป Drug Dispenser API
@@ -162,8 +173,6 @@ ApiEndpoint=http://localhost:3001/api/conHIS/insertPrescription
 # API timeout in seconds (default: 30)
 ApiTimeoutSeconds=30
 
-
-
 # ===== PROCESSING SETTINGS =====
 # Processing interval in seconds (default: 5)
 ProcessingIntervalSeconds=5
@@ -174,7 +183,6 @@ MaxProcessingBatchSize=20
 # Auto start service when app launches (default: false)
 AutoStart=false
 ";
-
             File.WriteAllText(path, defaultConfig);
         }
 
@@ -185,6 +193,7 @@ AutoStart=false
 Database Connection:
   Server: {GetServerFromConnectionString()}
   Database: {GetDatabaseFromConnectionString()}
+  PharmacyCode: {(PharmacyCode ?? "ALL (no filter)")}
 
 API Settings:
   Endpoint: {ApiEndpoint}

@@ -26,7 +26,6 @@ namespace interface_Nonthavej
         {
             InitializeComponent();
 
-            // Initialize managers
             _dbManager = new FnDatabaseSettings();
             _apiManager = new FnAPISettings();
             _logManager = new FnLogSettings();
@@ -49,10 +48,7 @@ namespace interface_Nonthavej
             {
                 MessageBox.Show(
                     $"เกิดข้อผิดพลาดในการโหลดการตั้งค่า:\n{ex.Message}",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -64,15 +60,18 @@ namespace interface_Nonthavej
             txtDatabase.Text = _dbSettings.Database;
             txtUserId.Text = _dbSettings.UserId;
             txtPassword.Text = _dbSettings.Password;
+
+            // PharmacyCode: show as stored (ALL, PH1, PH3, …)
+            txtPharmacyCode.Text = string.IsNullOrWhiteSpace(_dbSettings.PharmacyCode)
+                ? "ALL"
+                : _dbSettings.PharmacyCode;
         }
 
         private void LoadAPISettings()
         {
             _apiSettings = _apiManager.Load();
-
             txtApiEndpoint.Text = _apiSettings.ApiEndpoint;
             numApiTimeout.Value = _apiSettings.ApiTimeoutSeconds;
-     
         }
 
         private void LoadLogSettings()
@@ -87,10 +86,8 @@ namespace interface_Nonthavej
 
         private async void BtnTestConnection_Click(object sender, EventArgs e)
         {
-            // Update settings from form
             UpdateDatabaseSettingsFromForm();
 
-            // Validate
             var validation = _validator.ValidateDatabase(_dbSettings);
             if (!validation.IsValid)
             {
@@ -101,7 +98,6 @@ namespace interface_Nonthavej
                 return;
             }
 
-            // Test connection
             btnTestConnection.Enabled = false;
             lblConnectionStatus.Text = "⏳ Testing connection...";
             lblConnectionStatus.ForeColor = Color.Orange;
@@ -120,10 +116,7 @@ namespace interface_Nonthavej
                         $"Server: {_dbSettings.Server}\n" +
                         $"Database: {_dbSettings.Database}\n" +
                         $"SQL Server Version: {result.Version}",
-                        "Connection Successful",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information
-                    );
+                        "Connection Successful", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 else
                 {
@@ -132,28 +125,17 @@ namespace interface_Nonthavej
 
                     MessageBox.Show(
                         $"❌ การเชื่อมต่อล้มเหลว!\n\n{result.Message}\n\n" +
-                        $"กรุณาตรวจสอบ:\n" +
-                        $"• Server address และ port\n" +
-                        $"• Database name\n" +
-                        $"• Username และ Password\n" +
-                        $"• Network connectivity",
-                        "Connection Failed",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error
-                    );
+                        "กรุณาตรวจสอบ:\n• Server address และ port\n" +
+                        "• Database name\n• Username และ Password\n• Network connectivity",
+                        "Connection Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
             catch (Exception ex)
             {
                 lblConnectionStatus.Text = $"❌ Error: {ex.Message}";
                 lblConnectionStatus.ForeColor = Color.Red;
-
-                MessageBox.Show(
-                    $"❌ เกิดข้อผิดพลาด!\n\n{ex.Message}",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
+                MessageBox.Show($"❌ เกิดข้อผิดพลาด!\n\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -165,14 +147,11 @@ namespace interface_Nonthavej
         {
             try
             {
-                // Update all settings from form
                 UpdateAllSettingsFromForm();
 
-                // Validate all settings
                 if (!ValidateAllSettings())
                     return;
 
-                // Confirm save
                 var result = MessageBox.Show(
                     "คุณต้องการบันทึกการตั้งค่าทั้งหมดหรือไม่?\n\n" +
                     "📁 ไฟล์ที่จะถูกแก้ไข:\n" +
@@ -180,17 +159,12 @@ namespace interface_Nonthavej
                     "   • Config\\appsettings.ini\n" +
                     "   • Config\\CleanOldLogs.ini\n\n" +
                     "⚠️ หมายเหตุ: การตั้งค่าบางอย่างอาจต้อง Restart โปรแกรม",
-                    "Confirm Save",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question
-                );
+                    "Confirm Save", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
                 if (result != DialogResult.Yes)
                     return;
 
-                // Save all settings
                 SaveAllSettings();
-
                 SettingsChanged = true;
 
                 MessageBox.Show(
@@ -198,12 +172,9 @@ namespace interface_Nonthavej
                     "ไฟล์ที่ถูกอัพเดท:\n" +
                     "✓ Connection\\connectdatabase.ini\n" +
                     "✓ Config\\appsettings.ini\n" +
-                    "✓Config\\CleanOldLogs.ini\n\n" +
+                    "✓ Config\\CleanOldLogs.ini\n\n" +
                     "💡 การตั้งค่าจะมีผลในครั้งถัดไปที่โปรแกรมโหลดข้อมูล",
-                    "Success",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information
-                );
+                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 this.DialogResult = DialogResult.OK;
                 this.Close();
@@ -212,10 +183,7 @@ namespace interface_Nonthavej
             {
                 MessageBox.Show(
                     $"❌ เกิดข้อผิดพลาดในการบันทึกการตั้งค่า:\n\n{ex.Message}",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -223,10 +191,7 @@ namespace interface_Nonthavej
         {
             var result = MessageBox.Show(
                 "คุณต้องการยกเลิกการเปลี่ยนแปลงหรือไม่?\n\nการตั้งค่าที่แก้ไขจะไม่ถูกบันทึก",
-                "Confirm Cancel",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question
-            );
+                "Confirm Cancel", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
             if (result == DialogResult.Yes)
             {
@@ -245,13 +210,16 @@ namespace interface_Nonthavej
             _dbSettings.Database = txtDatabase.Text.Trim();
             _dbSettings.UserId = txtUserId.Text.Trim();
             _dbSettings.Password = txtPassword.Text.Trim();
+
+            // Normalise: blank → "ALL"
+            var pharmacyRaw = txtPharmacyCode.Text.Trim();
+            _dbSettings.PharmacyCode = string.IsNullOrWhiteSpace(pharmacyRaw) ? "ALL" : pharmacyRaw.ToUpper();
         }
 
         private void UpdateAPISettingsFromForm()
         {
             _apiSettings.ApiEndpoint = txtApiEndpoint.Text.Trim();
             _apiSettings.ApiTimeoutSeconds = (int)numApiTimeout.Value;
-
         }
 
         private void UpdateLogSettingsFromForm()
@@ -268,7 +236,6 @@ namespace interface_Nonthavej
 
         private bool ValidateAllSettings()
         {
-            // Validate Database
             var dbValidation = _validator.ValidateDatabase(_dbSettings);
             if (!dbValidation.IsValid)
             {
@@ -279,7 +246,6 @@ namespace interface_Nonthavej
                 return false;
             }
 
-            // Validate API
             var apiValidation = _validator.ValidateAPI(_apiSettings);
             if (!apiValidation.IsValid)
             {
@@ -290,7 +256,6 @@ namespace interface_Nonthavej
                 return false;
             }
 
-            // Validate Log
             var logValidation = _validator.ValidateLog(_logSettings);
             if (!logValidation.IsValid)
             {
@@ -315,18 +280,10 @@ namespace interface_Nonthavej
         {
             switch (fieldName)
             {
-                case "Server":
-                    txtServer.Focus();
-                    break;
-                case "Database":
-                    txtDatabase.Focus();
-                    break;
-                case "UserId":
-                    txtUserId.Focus();
-                    break;
-                case "Password":
-                    txtPassword.Focus();
-                    break;
+                case "Server": txtServer.Focus(); break;
+                case "Database": txtDatabase.Focus(); break;
+                case "UserId": txtUserId.Focus(); break;
+                case "Password": txtPassword.Focus(); break;
             }
         }
 
@@ -334,13 +291,8 @@ namespace interface_Nonthavej
         {
             switch (fieldName)
             {
-                case "ApiEndpoint":
-                    txtApiEndpoint.Focus();
-                    break;
-                case "ApiTimeout":
-                    numApiTimeout.Focus();
-                    break;
-              
+                case "ApiEndpoint": txtApiEndpoint.Focus(); break;
+                case "ApiTimeout": numApiTimeout.Focus(); break;
             }
         }
 

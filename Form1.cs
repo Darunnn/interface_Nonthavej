@@ -70,8 +70,9 @@ namespace interface_Nonthavej
                 _appConfig.ConnectionString,
                 _appConfig.ApiEndpoint,
                 _logger,
-                _appConfig.MaxProcessingBatchSize,   // อ่านจาก appsettings.ini
-                _appConfig.ApiTimeoutSeconds          // อ่านจาก appsettings.ini
+                _appConfig.MaxProcessingBatchSize,   
+                _appConfig.ApiTimeoutSeconds,
+                _appConfig.PharmacyCode
             );
                     
                 }
@@ -593,8 +594,9 @@ namespace interface_Nonthavej
        _appConfig.ConnectionString,
        _appConfig.ApiEndpoint,
        _logger,
-       _appConfig.MaxProcessingBatchSize,   // อ่านจาก appsettings.ini
-       _appConfig.ApiTimeoutSeconds          // อ่านจาก appsettings.ini
+       _appConfig.MaxProcessingBatchSize,  
+       _appConfig.ApiTimeoutSeconds,
+       _appConfig.PharmacyCode
    );
                             _dbConnectionHelper = new FnDatabaseConnection(_appConfig.ConnectionString, _logger);
                             _exportHelper = new FnExport(_dataService, _logger, _uiHelper);

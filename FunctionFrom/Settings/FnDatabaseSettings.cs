@@ -23,22 +23,24 @@ namespace interface_Nonthavej.FunctionFrom.Settings
             var settings = new DatabaseSettings();
             var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConnFolder, ConnFile);
 
-            if (File.Exists(path))
-            {
-                var lines = File.ReadAllLines(path);
-                foreach (var line in lines)
-                {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
+            if (!File.Exists(path))
+                return settings;
 
-                    if (line.StartsWith("Server="))
-                        settings.Server = line.Replace("Server=", "").Trim().TrimEnd(';');
-                    else if (line.StartsWith("Database="))
-                        settings.Database = line.Replace("Database=", "").Trim().TrimEnd(';');
-                    else if (line.StartsWith("User Id="))
-                        settings.UserId = line.Replace("User Id=", "").Trim().TrimEnd(';');
-                    else if (line.StartsWith("Password="))
-                        settings.Password = line.Replace("Password=", "").Trim().TrimEnd(';');
-                }
+            var lines = File.ReadAllLines(path);
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                if (line.StartsWith("Server="))
+                    settings.Server = line.Substring("Server=".Length).Trim().TrimEnd(';');
+                else if (line.StartsWith("Database="))
+                    settings.Database = line.Substring("Database=".Length).Trim().TrimEnd(';');
+                else if (line.StartsWith("User Id="))
+                    settings.UserId = line.Substring("User Id=".Length).Trim().TrimEnd(';');
+                else if (line.StartsWith("Password="))
+                    settings.Password = line.Substring("Password=".Length).Trim().TrimEnd(';');
+                else if (line.StartsWith("PharmacyCode=", StringComparison.OrdinalIgnoreCase))
+                    settings.PharmacyCode = line.Substring("PharmacyCode=".Length).Trim().TrimEnd(';');
             }
 
             return settings;
@@ -62,6 +64,13 @@ namespace interface_Nonthavej.FunctionFrom.Settings
             content.AppendLine($"Password={settings.Password};");
             content.AppendLine($"TrustServerCertificate=True;");
 
+            // PharmacyCode: save as-is (ALL, PH1, PH2, PH3 …)
+            // Empty string is saved as ALL so behaviour is explicit in the file
+            var pharmacyValue = string.IsNullOrWhiteSpace(settings.PharmacyCode)
+                ? "ALL"
+                : settings.PharmacyCode.Trim().ToUpper();
+            content.AppendLine($"PharmacyCode={pharmacyValue};");
+
             File.WriteAllText(path, content.ToString());
         }
 
@@ -74,22 +83,19 @@ namespace interface_Nonthavej.FunctionFrom.Settings
 
             try
             {
-                var connectionString = $"Server={settings.Server};" +
-                                     $"Database={settings.Database};" +
-                                     $"User Id={settings.UserId};" +
-                                     $"Password={settings.Password};";
+                var connectionString =
+                    $"Server={settings.Server};" +
+                    $"Database={settings.Database};" +
+                    $"User Id={settings.UserId};" +
+                    $"Password={settings.Password};";
 
                 await Task.Run(() =>
                 {
-                    using (var connection = new SqlConnection(connectionString))
-                    {
-                        connection.Open();
+                    using var connection = new SqlConnection(connectionString);
+                    connection.Open();
 
-                        using (var cmd = new SqlCommand("SELECT @@VERSION", connection))
-                        {
-                            result.Version = cmd.ExecuteScalar()?.ToString() ?? "Unknown";
-                        }
-                    }
+                    using var cmd = new SqlCommand("SELECT @@VERSION", connection);
+                    result.Version = cmd.ExecuteScalar()?.ToString() ?? "Unknown";
                 });
 
                 result.IsSuccess = true;
@@ -104,10 +110,4 @@ namespace interface_Nonthavej.FunctionFrom.Settings
             return result;
         }
     }
-
-  
-
-   
 }
-
-
